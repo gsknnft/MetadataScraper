@@ -10,5 +10,6 @@ export const IPFSRegex = RegExp("Qm[1-9A-Za-z]{43}[^OIl](/[0-9]+)?");
 export const ERC721ABI: string[] = [
   "function name() external view returns (string memory)",
   "function totalSupply() external view returns (uint256)",
-  "function tokenURI(uint256) external view returns (string memory)"
+  "function tokenURI(uint256) external view returns (string memory)",
+  "function ownerOf(uint256) external view returns (address)"
 ];

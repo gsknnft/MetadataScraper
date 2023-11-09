@@ -29,12 +29,17 @@
     "typescript": "^4.5.4"
   },
   "dependencies": {
+    "alchemy-sdk": "^2.10.1",
     "axios": "^0.24.0",
     "dotenv": "^10.0.0",
     "ethers": "^5.5.2",
     "form-data": "^4.0.0",
-    "jimp": "^0.16.1",
+    "ipfs": "^0.66.1",
+    "jimp": "^0.22.10",
     "prompt": "^1.2.0",
     "winston": "^3.3.3"
+  },
+  "overrides": {
+    "xml2js": "0.5.0"
   }
 }

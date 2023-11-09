@@ -8,8 +8,48 @@ import { logger } from "./utils/logger"; // Logging
 import { ERC721ABI } from "./utils/constants"; // Constants
 import { promptVerifyContinue } from "./utils/prompt"; // Prompt
 import { collectURILocation, URILocation } from "./utils/metadata"; // Metadata helpers
+import { OwnedNftsResponse, Alchemy, GetNftsForOwnerOptions, Network } from 'alchemy-sdk'; // Update to actual Alchemy SDK types
+import { Address } from "web3";
 
-export default class Flipper {
+const apiKey: string = process.env.API_KEY || "";
+
+const settings = {
+  apiKey: apiKey, // Replace with your Alchemy API key.
+  network: Network.ETH_MAINNET // Replace with your network.
+};
+
+type TokenMetadata = {
+  tokenId: number;
+  metadata: Record<string, any>; // Type according to your metadata structure
+};
+
+type AddressMetadata = {
+  [tokenId: number]: TokenMetadata;
+};
+
+type AddressTokenIds = {
+  [address: string]: AddressMetadata;
+};
+
+// Define the types returned by the Alchemy SDK for better type handling
+type NFTData = {
+  contractAddress: string;
+  tokenId: number;
+  // Define other properties according to the response structure from the Alchemy SDK
+};
+
+type AddressTokenIds1 = {
+    [contractAddress: string]: {
+      [address: string]: {
+      tokenId: number[];
+      metadata: Record<number, TokenMetadata>;
+    };
+  };
+};
+
+
+
+export default class Meta {
   // IPFS Gateway URL
   IPFSGateway: string;
 
@@ -22,23 +62,17 @@ export default class Flipper {
 
   // Scraping + flipping status
   lastScrapedToken: number = 0;
-  lastFlippedToken: number = 0;
-
-  // Pinata API
-  pinataJWT: string | undefined;
 
   /**
    * Initializes Flipper
    * @param {string} rpcURL to retrieve from
    * @param {string} IPFSGateway to retrieve from + store to
    * @param {string} contractAddress of collection
-   * @param {string | undefined} pinataJWT optional token
    */
   constructor(
     rpcURL: string,
     IPFSGateway: string,
-    contractAddress: string,
-    pinataJWT: string | undefined
+    contractAddress: string
   ) {
     // Update IPFS Gateway
     this.IPFSGateway = IPFSGateway;
@@ -48,9 +82,8 @@ export default class Flipper {
       ERC721ABI,
       new ethers.providers.StaticJsonRpcProvider(rpcURL)
     );
-    // Update optional Pinata credentials
-    this.pinataJWT = pinataJWT;
   }
+  allAddressTokenMetadata: Record<string, AddressMetadata[]> = {};
 
   /**
    * Collects collections name and totalSupply
@@ -59,6 +92,66 @@ export default class Flipper {
   async collectCollectionDetails(): Promise<void> {
     this.collectionName = await this.contract.name();
     this.collectionSupply = await this.contract.totalSupply();
+  }
+
+    /**
+   * Read Ethereum addresses from the 'addresses.json' file.
+   * @returns {string[]} Array of Ethereum addresses.
+   */
+    readAddressesFromJSON(): string[] {
+      try {
+        const addressesJSON = fs.readFileSync("src/utils/addresses.json", "utf-8");
+        const addresses = JSON.parse(addressesJSON);
+        return addresses;
+      } catch (error) {
+        logger.error("Error reading addresses from 'addresses.json':", error);
+        return [];
+      }
+    }
+  
+    
+  /**
+   * Retrieves the token IDs owned by a specific address for a given contract
+   * @param {string} ownerAddress - Ethereum address of the owner
+   * @returns {AddressTokenIds} - Object containing address, token IDs, and metadata
+   */
+  async getTokenIdsForOwner(ownerAddress: string): Promise<AddressTokenIds1> {
+    const alchemy = new Alchemy(settings); // Initialize AlchemyNFT SDK (Assuming the correct instantiation)
+    alchemy.core.getBlockNumber().then(console.log);
+    const contractAddress: Address = "0xFAb8E011F858270A3d41E4af3c2FDec0081B0eE3";
+    try {
+      const options: GetNftsForOwnerOptions = {
+        contractAddresses: [contractAddress],
+        omitMetadata: false, // Whether to include metadata (or set it as per your requirement)
+        // Include any other options you might need for pagination, filtering, etc.
+      };
+      const nftsForOwner: OwnedNftsResponse = await alchemy.nft.getNftsForOwner(ownerAddress, options);
+      logger.info(`MWB - ${contractAddress} - owned tokens for owner: ${ownerAddress}`);
+      const tokenIdsForContract: number[] = nftsForOwner.ownedNfts
+      .map(nft => Number(nft.tokenId)); // Convert to number using Number() or parseInt()
+      logger.info(`MWB - ${tokenIdsForContract} - owned tokens for owner: ${ownerAddress}`);
+
+      const addressTokenIds: AddressTokenIds1 = {
+        [contractAddress]: {
+          [ownerAddress]: {
+            tokenId: tokenIdsForContract,
+            metadata: tokenIdsForContract.reduce((acc, tokenId) => {
+              acc[tokenId] = {
+                tokenId,
+                metadata: {} // Placeholder for metadata for each token ID
+              };
+              return acc;
+            }, {} as Record<number, TokenMetadata>)
+          }
+        }
+      };
+      
+  
+      return addressTokenIds;
+    } catch (error) {
+      logger.error("Error retrieving token IDs for the contract:", error);
+      return {};
+    }
   }
 
   /**
@@ -134,91 +227,131 @@ export default class Flipper {
   }
 
   /**
-   * Collects image from URI, saves to path
-   * @param {string} uri to retrieve image from
-   * @param {string} path to save image to
-   */
-  async getAndSaveHTTPImage(uri: string, path: string): Promise<void> {
-    // Collect image from URI as a stream
-    const { data } = await axios.get(uri, { responseType: "stream" });
-    // Pipe stream to a writeable fs stream
-    const writer = data.pipe(fs.createWriteStream(path));
-    // Appropriately convert writer response to a promise
-    return new Promise((resolve, reject) => {
-      writer.on("finish", resolve);
-      writer.on("error", reject);
-    });
-  }
-
-  /**
    * Scrapes tokenId of contract
    * Saves metadata to /output/original/{tokenId}.json
    * Saves image to /output/original/images/{tokenId}.png
    * @param {number} tokenId to scrape
    */
   async scrapeOriginalToken(tokenId: number): Promise<void> {
-    // If token to scrape >= total supply
     if (tokenId >= this.collectionSupply) {
-      // Revert with finished log
       logger.info("Finished scraping original metadata");
       return;
     }
-
-    // Collect token URI from contract
+  
     const URI: string = await this.contract.tokenURI(tokenId);
-
-    // Collect location and formatted URI from URI
     const { loc, URI: formattedURI } = collectURILocation(URI);
-
-    // Collect metadata based on URI location
-    // Could use a ternary and skip the switch, but more maintanable long-term
+  
     let metadata: Record<any, any> = {};
     switch (loc) {
-      // Case: IPFS
       case URILocation.IPFS:
-        metadata = await this.getHTTPMetadata(
-          `${this.IPFSGateway}${formattedURI}`
-        );
+        metadata = await this.getHTTPMetadata(`${this.IPFSGateway}${formattedURI}`);
         break;
-      // Case: HTTPS
+      case URILocation.HTTPS:
+        metadata = await this.getHTTPMetadata(formattedURI);
+        break;
+    }
+  
+    const baseFolder: string = this.getDirectoryPath("original");
+    const tokenMetadataPath: string = `${baseFolder}/${tokenId}.json`;
+  
+    await fs.writeFileSync(tokenMetadataPath, JSON.stringify(metadata));
+    logger.info(`Retrieved token #${tokenId}`);
+    await this.scrapeOriginalToken(tokenId + 1);
+  }
+
+  /**
+   * Scrapes token metadata based on address and tokenId
+   * @param {string} address - Ethereum address to filter tokens
+   * @param {number} tokenId - Token ID to scrape
+   */
+  async scrapeOriginalTokenByAddress(address: string, tokenId: number): Promise<void> {
+    if (tokenId >= this.collectionSupply) {
+      logger.info(`Finished scraping original metadata for address ${address}`);
+      return;
+    }
+    
+    const tokenOwner = await this.contract.ownerOf(tokenId);
+    if (tokenOwner !== address) {
+      // If the token isn't owned by the specified address, proceed to the next token
+      await this.scrapeOriginalTokenByAddress(address, tokenId + 1);
+      return;
+    }
+
+    const URI: string = await this.contract.tokenURI(tokenId);
+    const { loc, URI: formattedURI } = collectURILocation(URI);
+
+    let metadata: Record<any, any> = {};
+    switch (loc) {
+      case URILocation.IPFS:
+        metadata = await this.getHTTPMetadata(`${this.IPFSGateway}${formattedURI}`);
+        break;
       case URILocation.HTTPS:
         metadata = await this.getHTTPMetadata(formattedURI);
         break;
     }
 
-    // Get relevant paths
-    const baseFolder: string = this.getDirectoryPath("original");
-    const tokenMetadataPath: string = `${baseFolder}/${tokenId}.json`;
-    const tokenImagePath: string = `${baseFolder}/images/${tokenId}.png`;
-
-    // Write metadata to JSON file
-    await fs.writeFileSync(tokenMetadataPath, JSON.stringify(metadata));
-
-    // If image details exist in retrieved metadata
-    if (metadata["image"]) {
-      // Collect image location and formatted URI
-      const { loc, URI: imageURI } = collectURILocation(metadata["image"]);
-
-      // Save image to disk based on location
-      switch (loc) {
-        // Case: IPFS
-        case URILocation.IPFS:
-          await this.getAndSaveHTTPImage(
-            this.IPFSGateway + imageURI,
-            tokenImagePath
-          );
-          break;
-        // Case: HTTPS
-        case URILocation.HTTPS:
-          await this.getAndSaveHTTPImage(imageURI, tokenImagePath);
-          break;
-      }
+    // Store metadata in the 'allAddressTokenMetadata' object
+    if (!this.allAddressTokenMetadata[address]) {
+      this.allAddressTokenMetadata[address] = [];
     }
 
-    // Log retrieval and process next tokenId
-    logger.info(`Retrieved token #${tokenId}`);
-    await this.scrapeOriginalToken(tokenId + 1);
+    // Retrieve existing metadata for this address or initialize an empty array
+    const existingMetadata = this.allAddressTokenMetadata[address];
+    
+    const tokenMetadata: TokenMetadata = {
+      tokenId,
+      metadata
+    };
+
+    // Push the metadata for the current token ID to the existing metadata for this address
+    existingMetadata.push(tokenMetadata);
+
+    // Update the 'allAddressTokenMetadata' object
+    this.allAddressTokenMetadata[address] = existingMetadata;
+
+    logger.info(`Retrieved token #${tokenId} for address ${address}`);
+    await this.scrapeOriginalTokenByAddress(address, tokenId + 1);
   }
+
+  
+  
+    // Store address -> tokenIds -> Metadata
+    addressTokenMetadata: AddressTokenIds = {};
+
+    /**
+     * Adds or updates the metadata of a token for a specific address
+     * @param {string} address - Ethereum address
+     * @param {number} tokenId - Token ID
+     * @param {Record<string, any>} metadata - Metadata associated with the token
+     */
+    addAddressTokenMetadata(address: string, tokenId: number, metadata: Record<string, any>): void {
+      if (!this.addressTokenMetadata[address]) {
+        this.addressTokenMetadata[address] = {};
+      }
+  
+      if (!this.addressTokenMetadata[address][tokenId]) {
+        this.addressTokenMetadata[address][tokenId] = {
+          tokenId: tokenId,
+          metadata: metadata,
+        };
+      } else {
+        // Update metadata for an existing token ID
+        this.addressTokenMetadata[address][tokenId].metadata = metadata;
+      }
+    }
+  
+    /**
+     * Get metadata for a token ID owned by a specific address
+     * @param {string} address - Ethereum address
+     * @param {number} tokenId - Token ID
+     * @returns {Record<string, any> | undefined} - Metadata of the token
+     */
+    getAddressTokenMetadata(address: string, tokenId: number): Record<string, any> | undefined {
+      if (this.addressTokenMetadata[address] && this.addressTokenMetadata[address][tokenId]) {
+        return this.addressTokenMetadata[address][tokenId].metadata;
+      }
+      return undefined;
+    }
 
   /**
    * Until parity between scraped and flipped tokens, copy metadata and flip images
@@ -312,6 +445,60 @@ export default class Flipper {
     return IpfsHash;
   }
 
+/**
+ * Scrape original token metadata for a list of addresses.
+ * @param {string[]} addresses - Array of Ethereum addresses to scrape.
+ */
+async scrapeOriginalTokensForAddresses(addresses: string[]): Promise<void> {
+  for (const address of addresses) {
+    logger.info(`Storing Metadata for address ${address}.`);
+    await this.findAndStoreTokenIDsByAddress(address);
+    const addressMetadata = this.addressTokenMetadata[address];
+    if (addressMetadata) {
+      const dataToStore = JSON.stringify(addressMetadata);
+      // Store the data for this address in a file
+      fs.writeFileSync(`../output/${address}_metadata.json`, dataToStore);
+      logger.info(`Metadata for address ${address} has been stored.`);
+    } else {
+      logger.info(`No metadata found for address ${address}.`);
+    }
+  }
+}
+
+/**
+ * Finds token IDs owned by a specific address for a given contract
+ * Stores this data in the 'addressTokenMetadata' object
+ * @param {string} address - Ethereum address to filter tokens
+ */
+async findAndStoreTokenIDsByAddress(address: string): Promise<void> {
+  const tokenBalance = await this.contract.totalSupply();
+
+  for (let tokenId = 1; tokenId < tokenBalance; tokenId++) {
+    logger.info(`token #${tokenId}`);
+    const tokenOwner = await this.contract.ownerOf(tokenId);
+    
+    if (tokenOwner === address) {
+      const URI = await this.contract.tokenURI(tokenId);
+      const { loc, URI: formattedURI } = collectURILocation(URI);
+
+      let metadata: Record<any, any> = {};
+      switch (loc) {
+        case URILocation.IPFS:
+          metadata = await this.getHTTPMetadata(`${this.IPFSGateway}${formattedURI}`);
+          break;
+        case URILocation.HTTPS:
+          metadata = await this.getHTTPMetadata(formattedURI);
+          break;
+      }
+
+      this.addAddressTokenMetadata(address, tokenId, metadata);
+      logger.info(`Retrieved token #${tokenId} for address ${address}`);
+    }
+  }
+}
+
+  
+
   /**
    * Given a file path + name and IPFS image hash, modifies image path in file
    * @param {string} imageHash of flipped images
@@ -375,24 +562,26 @@ export default class Flipper {
 
     // Setup output metadata folder
     this.lastScrapedToken = await this.setupDirectoryByType("original");
-    // Setup flipped metadata folder
-    this.lastFlippedToken = await this.setupDirectoryByType("flipped");
 
     // Scrape original token metadata
     await this.scrapeOriginalToken(this.lastScrapedToken + 1);
+    
+  const addresses = this.readAddressesFromJSON(); // Read addresses from the addresses.json file based on the flag
 
+
+    const dataToStore = JSON.stringify(this.allAddressTokenMetadata);
+    // Store the data for all addresses in a single file
+    fs.writeFileSync(`../output/all_addresses_metadata.json`, dataToStore);
+    logger.info(`Metadata for all addresses has been stored.`);
+    
+    // Po
     // Post-processing (move metadata and flip images)
-    await this.postProcess(this.lastFlippedToken + 1);
+    //await this.postProcess(this.lastFlippedToken + 1);
 
     // Post-processing (give time to make manual modifications)
     await promptVerifyContinue(
       "You can make modify the flipped metadata now. Continue? (true/false)"
     );
-
-    // If provided Pinata token
-    if (this.pinataJWT) {
-      // Upload new metadata to IPFS
-      await this.uploadMetadata(this.pinataJWT);
-    }
   }
+  
 }
