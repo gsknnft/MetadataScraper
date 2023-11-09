@@ -1,9 +1,7 @@
 import fs from "fs"; // Filesystem
-import Jimp from "jimp"; // Image manipulation
 import path from "path"; // Path
 import axios from "axios"; // Requests
 import { ethers } from "ethers"; // Ethers
-import FormData from "form-data"; // Data sending
 import { logger } from "./utils/logger"; // Logging
 import { ERC721ABI } from "./utils/constants"; // Constants
 import { promptVerifyContinue } from "./utils/prompt"; // Prompt
@@ -111,14 +109,23 @@ export default class Meta {
   readFromJSON(): AddressTokenIdsMap {
     try {
       const addressTokenIdsJSON = fs.readFileSync("addressTokenIds.json", "utf-8");
-      return JSON.parse(addressTokenIdsJSON);
+      const addressTokenIds: AddressTokenIdsMap = JSON.parse(addressTokenIdsJSON);
+      
+      const addresses: string[] = Object.keys(addressTokenIds);
+      const tokenIds: number[][] = Object.values(addressTokenIds);
+      
+      // Combine addresses with their respective token IDs
+      const addressesWithTokenIds: Record<string, number[]>[] = addresses.map((address, index) => ({
+        [address]: tokenIds[index]
+      }));
+  
+      return Object.assign({}, ...addressesWithTokenIds);
     } catch (error) {
       logger.error("Error reading data from 'addressTokenIds.json':", error);
       return {};
     }
   }
-        
-      
+  
 
   /**
    * Generates directory path based on collection contract address and subpath folder
@@ -224,6 +231,7 @@ export default class Meta {
     logger.info(`Retrieved token #${tokenId}`);
     await this.scrapeOriginalToken(tokenId + 1);
   }
+  
   async scrapeToken(address: string, tokenIds: number[]): Promise<void> {
     const metadataPerAddress: Record<number, Record<any, any>> = {};
   
@@ -236,6 +244,7 @@ export default class Meta {
     const addressMetadataPath = `../output/addresses/${address}_metadata.json`;
     fs.writeFileSync(addressMetadataPath, JSON.stringify(metadataPerAddress));
   }
+  
   
   async scrapeTokenMetadata(tokenId: number): Promise<Record<any, any>> {
     const URI = await this.contract.tokenURI(tokenId);
@@ -252,7 +261,74 @@ export default class Meta {
     }
     return metadata;
   }
-  
+
+  // Function to scrape token metadata for a given address and token IDs
+async scrapeTokenMetadataForAddress(address: string, tokenIds: number[]): Promise<Record<string, any>[]> {
+  const metadataList: Record<string, any>[] = [];
+
+  for (const tokenId of tokenIds) {
+    const URI: string = await this.contract.tokenURI(tokenId);
+    const { loc, URI: formattedURI } = collectURILocation(URI);
+
+    let metadata: Record<string, any> = {};
+    switch (loc) {
+      case URILocation.IPFS:
+        metadata = await this.getHTTPMetadata(`${this.IPFSGateway}${formattedURI}`);
+        break;
+      case URILocation.HTTPS:
+        metadata = await this.getHTTPMetadata(formattedURI);
+        break;
+    }
+
+    metadataList.push(metadata);
+  }
+
+  return metadataList;
+}
+
+// Modified function to create address -> tokenIds -> metadata and save to file
+async createAddressTokenMetadata(): Promise<void> {
+  try {
+    const addresses: string[] = this.readAddressesFromJSON();
+    const addressTokenIds: AddressTokenIdsMap = this.readFromJSON();
+    const addressTokenMetadata: AddressTokenIds = {};
+
+    for (const address of addresses) {
+      const tokenIds = addressTokenIds[address] || [];
+      const metadataList: Record<string, any>[] = await this.scrapeTokenMetadataForAddress(address, tokenIds);
+
+      const addressMetadata: AddressMetadata = {};
+      for (let i = 0; i < tokenIds.length; i++) {
+        addressMetadata[tokenIds[i]] = {
+          tokenId: tokenIds[i],
+          metadata: metadataList[i]
+        };
+      }
+
+      addressTokenMetadata[address] = addressMetadata;
+      const addressFilePath = `./output/addresses/${address}_metadata.json`;
+
+      try {
+        fs.mkdirSync("./output/addresses", { recursive: true }); // Create directory if it doesn't exist
+        fs.writeFileSync(addressFilePath, JSON.stringify(addressMetadata), { flag: 'w' }); // Overwrite/create file
+        logger.info(`Metadata for address ${address} has been saved.`);
+      } catch (error) {
+        logger.error(`Error writing metadata for address ${address}:`, error);
+      }
+    }
+
+    const allAddressesMetadataPath = "./output/all_addresses_metadata.json";
+    try {
+      fs.writeFileSync(allAddressesMetadataPath, JSON.stringify(addressTokenMetadata), { flag: 'w' }); // Overwrite/create file
+      logger.info("Metadata for all addresses has been saved.");
+    } catch (error) {
+      logger.error("Error writing all addresses metadata:", error);
+    }
+  } catch (error) {
+    logger.error("Error scraping metadata for addresses:", error);
+  }
+}
+
 
 // Adjust the createMetadataForAddresses function
 async createMetadataForAddresses(): Promise<void> {
@@ -362,6 +438,7 @@ async createMetadataForAddresses(): Promise<void> {
         // Update metadata for an existing token ID
         this.addressTokenMetadata[address][tokenId].metadata = metadata;
       }
+      // SAVE TO JSON
     }
   
     /**
@@ -411,8 +488,11 @@ async createMetadataForAddresses(): Promise<void> {
           // Update metadata for an existing token ID
           this.addressTokenMetadata[address][tokenId].metadata = metadata;
         }
+        const metadataPath = `../output/_metadata.json`;
+        fs.writeFileSync(metadataPath, JSON.stringify(this.addressTokenMetadata[address][tokenId]));
     
-        await this.scrapeOriginalTokenByAddress2(address, tokenId + 1);
+        logger.info(`Metadata for address ${address} has been saved to ${metadataPath}`);
+        //await this.scrapeOriginalTokenByAddress2(address, tokenId + 1);
       } else {
         // When all tokenIds for this address are processed, save metadata
         const metadataPath = `../output/${address}_metadata.json`;
@@ -426,7 +506,7 @@ async createMetadataForAddresses(): Promise<void> {
   /**
    * Until parity between scraped and flipped tokens, copy metadata and flip images
    */
-  async postProcess(lastFlipped: number): Promise<void> {
+/*   async postProcess(lastFlipped: number): Promise<void> {
     // If tokens to flip >= scraped tokens
     if (lastFlipped > this.lastScrapedToken) {
       // Revert with finished log
@@ -452,7 +532,7 @@ async createMetadataForAddresses(): Promise<void> {
     // Log flip and process next tokenId
     logger.info(`Flipped token #${lastFlipped}`);
     await this.postProcess(lastFlipped + 1);
-  }
+  } */
 
   /**
    * Given a path to a folder and filetype, filter for all files of filetype
@@ -464,7 +544,7 @@ async createMetadataForAddresses(): Promise<void> {
    * @param {Function?} customPreProcess optional preprocesser for files
    * @returns {Promise<string>} IPFS hash of uploaded content
    */
-  async pinContent(
+/*   async pinContent(
     path: string,
     filetype: string,
     token: string,
@@ -514,33 +594,13 @@ async createMetadataForAddresses(): Promise<void> {
     // Return directory
     return IpfsHash;
   }
-
-/**
- * Scrape original token metadata for a list of addresses.
- * @param {string[]} addresses - Array of Ethereum addresses to scrape.
  */
-async scrapeOriginalTokensForAddresses(addresses: string[]): Promise<void> {
-  for (const address of addresses) {
-/*     logger.info(`Storing Metadata for address ${address}.`);
-    await this.findAndStoreTokenIDsByAddress(address); */
-    const addressMetadata = this.addressTokenMetadata[address];
-    if (addressMetadata) {
-      const dataToStore = JSON.stringify(addressMetadata);
-      // Store the data for this address in a file
-      fs.writeFileSync(`../output/${address}_metadata.json`, dataToStore);
-      logger.info(`Metadata for address ${address} has been stored.`);
-    } else {
-      logger.info(`No metadata found for address ${address}.`);
-    }
-  }
-}
-
 /**
  * Finds token IDs owned by a specific address for a given contract
  * Stores this data in the 'addressTokenMetadata' object
- * @param {string} address - Ethereum address to filter tokens
+ * @ param {string} address - Ethereum address to filter tokens
  */
-async findAndStoreTokenIDsByAddress(address: string): Promise<void> {
+/* async findAndStoreTokenIDsByAddress(address: string): Promise<void> {
   const tokenBalance = await this.contract.totalSupply();
 
   for (let tokenId = 1; tokenId < tokenBalance; tokenId++) {
@@ -566,36 +626,10 @@ async findAndStoreTokenIDsByAddress(address: string): Promise<void> {
       logger.info(`Retrieved token #${tokenId} for address ${address}`);
     }
   }
-}
+} */
 
-  
 
-  /**
-   * Given a file path + name and IPFS image hash, modifies image path in file
-   * @param {string} imageHash of flipped images
-   * @param {string} filename of JSON metadata
-   * @param {string} path to JSON metadata
-   */
-  async processJSON(
-    imageHash: string,
-    filename: string,
-    path: string
-  ): Promise<void> {
-    // Read file
-    const file: Buffer = await fs.readFileSync(`${path}/${filename}`);
-    // Read data in file
-    const data = JSON.parse(file.toString());
-    // Overrwrite file with new image data
-    await fs.writeFileSync(
-      `${path}/${filename}`,
-      JSON.stringify({
-        ...data,
-        // Overwrite image key with "ipfs://hash/tokenId"
-        image: `ipfs://${imageHash}/${filename.slice(0, -5)}.png`
-      })
-    );
-  }
-
+  // THIS WORKS
   async createAddressTokenIdsMap(): Promise<AddressTokenIdsMap> {
     try {
   
@@ -657,16 +691,17 @@ async findAndStoreTokenIDsByAddress(address: string): Promise<void> {
     // Scrape original token metadata
     await this.scrapeOriginalToken(this.lastScrapedToken + 1);
     
-  const addresses = this.readAddressesFromJSON(); // Read addresses from the addresses.json file based on the flag
+  const addresses = this.readAddressesFromJSON(); // Read addresses from the addresses.json
 if (addresses.length != 0) {
   logger.info(`Scraping for addresses ${addresses.toString()}.`);
 
   for (const address of addresses) {
-    const {tokenIDs} = this.readFromJSON(); // Read addresses from the addresses.json file based on the flag
+    const {tokenIDs} = this.readFromJSON(); // Read tokenIds from
     for (const tokenId of tokenIDs) {
-    await this.scrapeOriginalTokenByAddress2(address, tokenId);
+      logger.info(`Scraping ${tokenId}`);
+      await this.scrapeOriginalTokenByAddress2(address, tokenId);
     }
-    await this.findAndStoreTokenIDsByAddress(address);
+/*     await this.findAndStoreTokenIDsByAddress(address);
     const addressMetadata = this.addressTokenMetadata[address];
     if (addressMetadata) {
       const dataToStore = JSON.stringify(addressMetadata);
@@ -675,15 +710,15 @@ if (addresses.length != 0) {
       logger.info(`Metadata for address ${address} has been stored.`);
     } else {
       logger.info(`No metadata found for address ${address}.`);
-    }
+    } */
   }
   }
 
-    const dataToStore = JSON.stringify(this.allAddressTokenMetadata);
+/*     const dataToStore = JSON.stringify(this.allAddressTokenMetadata);
     // Store the data for all addresses in a single file
     fs.writeFileSync(`../output/all_addresses_metadata.json`, dataToStore);
     logger.info(`Metadata for all addresses has been stored.`);
-    
+     */
     // Po
     // Post-processing (move metadata and flip images)
     //await this.postProcess(this.lastFlippedToken + 1);

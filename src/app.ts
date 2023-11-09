@@ -22,13 +22,15 @@ dotenv.config();
   const meta = new Meta(rpcURL, IPFSGateway, contractAddress);
   const addresses = meta.readAddressesFromJSON();
   await meta.createAddressTokenIdsMap();
-  await meta.createMetadataForAddresses();
+  await meta.createAddressTokenMetadata();
+/*   const { addresses2, tokenIds } = meta.readFromJSON();
+  logger.info(`READ Parsed ${addresses2} and ${tokenIds}`); */
 
-  if (addresses.length !== 0) {
+/*   if (addresses.length !== 0) {
    // for (const address of addresses) {
       await meta.scrapeOriginalTokensForAddresses(addresses);
    // }
   }
-  
+   */
   await meta.process();
 })();
