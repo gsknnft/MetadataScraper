@@ -1,6 +1,7 @@
 import Meta from "./meta"; // Flipper
 import * as dotenv from "dotenv"; // Env vars
 import { logger } from "./utils/logger"; // Logging
+import { promptVerifyContinue } from './utils/prompt';
 
 // Setup env
 dotenv.config();
@@ -20,17 +21,28 @@ dotenv.config();
 
   // Setup flipper and process
   const meta = new Meta(rpcURL, IPFSGateway, contractAddress);
-  const addresses = meta.readAddressesFromJSON();
-  await meta.createAddressTokenIdsMap();
-  await meta.createAddressTokenMetadata();
-/*   const { addresses2, tokenIds } = meta.readFromJSON();
-  logger.info(`READ Parsed ${addresses2} and ${tokenIds}`); */
+/* const addresses = await meta.readAddressesFromJSON();
+  logger.info(`${JSON.stringify(addresses, null, 2)}`)
+  */
+/*   const data = await meta.readAddressTokenIdsFromJSON();
+  const data2 = await meta.readParsedAddressTokenIdsFromJSON();
 
-/*   if (addresses.length !== 0) {
-   // for (const address of addresses) {
-      await meta.scrapeOriginalTokensForAddresses(addresses);
-   // }
-  }
-   */
-  await meta.process();
+  logger.info(`
+  readAddressTokenIdsFromJSON: ${data2}
+  readParsedAddressTokenIdsFromJSON: ${JSON.stringify(data2, null, 2)}`
+  ) */
+
+  //await meta.processAddresses();
+  const shouldContinue = await promptVerifyContinue(
+    "Continue? (true/false)"
+  );
+  await meta.doIt();
+  shouldContinue;
+
+  //await meta.process();
+
+  //await meta.createAddressTokenIdsMap();
+  shouldContinue;
+  //await meta.createAddressTokenMetadata();
+
 })();
