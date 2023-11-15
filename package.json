@@ -16,6 +16,8 @@
   "author": "Anish Agnihotri",
   "license": "GPLv3",
   "devDependencies": {
+    "@types/file-saver": "^2.0.5",
+    "@types/fs-extra": "^11.0.2",
     "@types/node": "^17.0.5",
     "@types/prompt": "^1.1.2",
     "babel-eslint": "^10.1.0",
@@ -30,6 +32,12 @@
   },
   "dependencies": {
     "alchemy-sdk": "^2.10.1",
+    "exceljs": "^4.3.0",
+    "file-saver": "^2.0.5",
+    "fs-extra": "^11.1.1",
+    "google-auth-library": "^9.1.0",
+    "web3": "^4.1.2",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.0/xlsx-0.20.0.tgz",
     "axios": "^0.24.0",
     "dotenv": "^10.0.0",
     "ethers": "^5.5.2",

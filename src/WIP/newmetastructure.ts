@@ -11,9 +11,7 @@ import { Address } from '@thirdweb-dev/sdk';
 import _default from 'vuex';
 import { isDeepStrictEqual } from 'util';
 
-export const shouldContinue = promptVerifyContinue("Continue? (true/false)");
-
-export async function deepEqual(obj1: any, obj2: any): Promise<boolean> {
+async function deepEqual(obj1: any, obj2: any): Promise<boolean> {
 
   try {
     isDeepStrictEqual(obj1, obj2);
@@ -23,27 +21,25 @@ export async function deepEqual(obj1: any, obj2: any): Promise<boolean> {
   }
 }
 
-export interface TokenId {
-  metadata: Record<number, any>;
+interface TokenMetadata {
+  metadata: Record<string, any>;
 }
 
-export interface AddressMetadata {
-  ownerAddress: Address;
-  tokenIds: number[];
-  metadata: Record<number, TokenId>;
+interface AddressMetadata {
+  ownerTokens: AddressTokenIdsMap;
+  metadata: Record<number, TokenMetadata>;
 }
 
-export interface AllAddressesMetadata {
-  [ownerAddress: Address]: AddressMetadata;
+interface AllAddressesMetadata {
+  [address: Address]: AddressMetadata;
+}
+
+interface AddressTokenIdsMap {
+  [address: Address]: number[];
 }
 
 
-export interface AddressTokenIdsMap {
-  [ownerAddress: Address]: number[];
-}
-
-
-export default class Meta {
+export default class MetaNew {
   IPFSGateway: string;
   contract: ethers.Contract;
   collectionName: string = '';
@@ -367,7 +363,7 @@ export default class Meta {
     await this.scrapeOriginalToken(tokenId + 1);
   }
 
-  async getMeta(tokenId: number): Promise<TokenId> {
+  async getMeta(tokenId: number): Promise<TokenMetadata> {
     
     const URI: string = await this.contract.tokenURI(tokenId);
     const { loc, URI: formattedURI } = collectURILocation(URI);
@@ -388,12 +384,12 @@ export default class Meta {
   }
   
 
-  async scrapeTokenMetadataForAddress(address: Address, tokenIds: number[]): Promise<Record<number, TokenId>> {
-    const metadata: Record<number, TokenId> = {};
+  async scrapeTokenMetadataForAddress(address: Address, tokenIds: number[]): Promise<Record<number, TokenMetadata>> {
+    const metadata: Record<number, TokenMetadata> = {};
   
     for (const tokenId of tokenIds) {
       try {
-        const tokenMetadata: TokenId = await this.getMeta(tokenId);
+        const tokenMetadata: TokenMetadata = await this.getMeta(tokenId);
         metadata[tokenId] = tokenMetadata;
       } catch (error) {
         logger.error(`Error fetching metadata for token #${tokenId} and address ${address}: ${error}`);
@@ -403,7 +399,7 @@ export default class Meta {
     return metadata;
   }
   
-  async fetchTokenMetadata(address: Address, tokenId: number): Promise<TokenId> {
+  async fetchTokenMetadata(address: Address, tokenId: number): Promise<TokenMetadata> {
     const URI: string = await this.contract.tokenURI(tokenId);
     const { loc, URI: formattedURI } = collectURILocation(URI);
 
@@ -417,8 +413,8 @@ export default class Meta {
   }
 
   async fetchMetadataForAddress(address: Address, tokenIds: number[]): Promise<AddressMetadata> {
-    const metadata: Record<number, TokenId> = {};
-
+    const metadata: Record<number, TokenMetadata> = {};
+  
     for (const tokenId of tokenIds) {
       try {
         const tokenMetadata = await this.fetchTokenMetadata(address, tokenId);
@@ -427,220 +423,178 @@ export default class Meta {
         logger.error(`Error fetching metadata for token #${tokenId} and address ${address}: ${error}`);
       }
     }
-    const ownerAddress = address;
+  
     return {
-      ownerAddress,
-      tokenIds,
+      ownerTokens: { [address]: tokenIds },
       metadata,
     };
   }
   
+  async createAddressTokenMetadata(): Promise<void> {
+    try {
+      const name = this.collectionName.toLowerCase();
+      const nameWithoutSpaces: string = name.replace(/\s/g, "");
+      const addresses: Address[] = await this.readSanitizedAddressesFromJSON();
+      const addressTokenIds = await this.readIndexedAddressTokenIdsFromJSON();
+      const contractAddress: Address = `${process.env.CONTRACT}` || `0xFAb8E011F858270A3d41E4af3c2FDec0081B0eE3`;
+      const agglomeratedData: Record<string, Record<string, AddressMetadata>> = {};
+      const shouldContinue = await promptVerifyContinue("Continue? (true/false)");
+      const collectionFolder = path.resolve(__dirname, `${nameWithoutSpaces}_newStruct`);
+      const addressFolder = path.resolve(collectionFolder, 'addressesNewMeta');
+      await fs.promises.mkdir(collectionFolder, { recursive: true });
+      await fs.promises.mkdir(addressFolder, { recursive: true });
   
-  async createAllAddressesMetadata(addresses: Address[], addressTokenIds: AddressTokenIdsMap): Promise<AllAddressesMetadata> {
-    const allAddressesMetadata: AllAddressesMetadata = {};
+      let normalizedAddress: Address;
+      if (addresses.length !== 0) {
+        logger.info(`
+          Passed Addresses: ${JSON.stringify(addresses, null, 2)}
+        `);
+        for (const passedAddress of addresses) {
+          normalizedAddress = passedAddress.toLowerCase();
   
-    for (const address of addresses) {
-      const tokenIds = addressTokenIds[address] || [];
-      
-      // Correct the type of metadata from Record<number, TokenId> to TokenId
-      const metadata: TokenId[] = await Promise.all(tokenIds.map(tokenId => this.getMeta(tokenId)));
-      const ownerAddress = address;
-      const addressMetadata: AddressMetadata = {
-        ownerAddress,
-        tokenIds,
-        metadata,
-      };
+          if (!normalizedAddress) {
+            logger.warn('Invalid address:', normalizedAddress);
+            continue; // Skip to the next iteration
+          }
   
-      allAddressesMetadata[address.toLowerCase()] = addressMetadata; // Ensure consistent address format
+          logger.info(`Passed Address: ${normalizedAddress}`);
+          const addressFilePath = path.resolve(addressFolder, `${normalizedAddress}.json`);
   
-      const addressFilePath = path.resolve(`./output/addresses/${address.toLowerCase()}_metadata.json`); // Ensure consistent address format
-
-      await fs.promises.writeFile(addressFilePath, JSON.stringify(addressMetadata, null, 2));
-    }
+          // Check if the metadata file already exists
+          if (await fs.promises.access(addressFilePath).then(() => true).catch(() => false)) {
+            logger.info(`Metadata file already exists for address ${normalizedAddress}. Skipping.`);
+            continue; // Skip to the next iteration
+          }
   
-    const allAddressesMetadataPath = path.resolve('./output/all_addresses_metadata.json');
-    await fs.promises.writeFile(allAddressesMetadataPath, JSON.stringify(allAddressesMetadata, null, 2));
-    return allAddressesMetadata;
-  }
-
-
-    //async createAddressTokenMetadata(address: string, tokenIds: number[]): Promise<void> {
-      async createAddressTokenMetadata(): Promise<void> {
-        try {
-          const name = this.collectionName.toLowerCase();
-          const nameWithoutSpaces: string = name.replace(/\s/g, "");
-          const addresses: Address[] = await this.readSanitizedAddressesFromJSON();
-          const addressTokenIds = await this.readIndexedAddressTokenIdsFromJSON();
-          const contractAddress: Address = `${process.env.CONTRACT}` || `0xFAb8E011F858270A3d41E4af3c2FDec0081B0eE3`;
-          const agglomeratedData: Record<string, Record<string, AddressMetadata>> = {};
-          const collectionFolder = path.resolve('./output/', nameWithoutSpaces);
-          const addressFolder = path.resolve(collectionFolder, 'addressesMeta');
-          await fs.promises.mkdir(collectionFolder, { recursive: true });
-          await fs.promises.mkdir(addressFolder, { recursive: true });
-          let normalizedAddress: Address;
-          let shouldWriteFile: boolean = false; // Added this line
-
-          if (addresses.length !== 0) {
-            logger.info(`Passed Addresses: ${JSON.stringify(addresses, null, 2)}`);
-            for (const passedAddress of addresses) {
-              normalizedAddress = passedAddress.toLowerCase();
-            
-              if (!normalizedAddress) {
-                logger.warn('Invalid address:', normalizedAddress);
+          let existingMetadata: AddressMetadata | undefined;
+  
+          try {
+            // Read existing metadata file
+            const existingMetadataContent = await fs.promises.readFile(addressFilePath, 'utf-8');
+            existingMetadata = JSON.parse(existingMetadataContent);
+          } catch (error) {
+            // File doesn't exist or error reading file
+            logger.debug(`Metadata file not found for address ${normalizedAddress}. Will create a new one.`);
+          }
+  
+          let shouldWriteFile = true;
+  
+          let foundMatch = false; // Flag to control the loop
+          for (const [index, addressData] of Object.entries(addressTokenIds)) {
+            for (const [address, tokenIds] of Object.entries(addressData)) {
+              if (address === '') {
+                logger.warn('Invalid address:', address);
                 continue; // Skip to the next iteration
               }
-              logger.info(`Passed Address: ${normalizedAddress}`);
-              const addressFilePath = path.resolve(addressFolder, `${normalizedAddress}.json`);
-            
-              // Check if the metadata file already exists
-              if (await fs.promises.access(addressFilePath).then(() => true).catch(() => false)) {
-                logger.info(`Metadata file already exists for address ${normalizedAddress}. Skipping.`);
-                continue; // Skip to the next iteration
-              }
-              let existingMetadata: AddressMetadata | undefined;
-            
-              try {
-                // Read existing metadata file
-                const existingMetadataContent = await fs.promises.readFile(addressFilePath, 'utf-8');
-                existingMetadata = JSON.parse(existingMetadataContent);
-              } catch (error) {
-                // File doesn't exist or error reading file
-                logger.debug(`Metadata file not found for address ${normalizedAddress}. Will create a new one.`);
-              }
-            
-              let shouldWriteFile = false; // Assume no changes by default
-            
-              let foundMatch = false; // Flag to control the loop
-              for (const [index, addressData] of Object.entries(addressTokenIds)) {
-                for (const [address, tokenIds] of Object.entries(addressData)) {
-                  if (address === '') {
-                    logger.warn('Invalid address:', address);
-                    continue; // Skip to the next iteration
-                  }
-            
-                  const matchingAddressEntry = addressTokenIds.find(([address]) => normalizedAddress === address.toLowerCase());
-            
-                  if (matchingAddressEntry) {
-                    const [address, tokenIds] = matchingAddressEntry;
-            
-                    if (!address) {
-                      logger.warn('Invalid address:', address);
+  
+              const matchingAddressEntry = addressTokenIds.find(([address]) => normalizedAddress === address.toLowerCase());
+  
+              if (matchingAddressEntry) {
+                const [address, tokenIds] = matchingAddressEntry;
+  
+                if (!address) {
+                  logger.warn('Invalid address:', address);
+                  continue; // Skip to the next iteration
+                }
+  
+                if (foundMatch) {
+                  break; // Break out of the loop for the current address
+                }
+  
+                if (passedAddress.toLowerCase() === address.toLowerCase()) {
+                  if (tokenIds && Array.isArray(tokenIds)) {
+                    logger.info(`
+                      ${JSON.stringify(`Processing from addresses.json: ${normalizedAddress} which should be ${address.toLowerCase()},
+                      Scraping ${tokenIds.length} tokens for address ${address},
+                      Address: ${address}, owns  ${tokenIds.length} Token IDs: ${tokenIds}`, null, 2)}
+                    `);
+  
+                    let metadataPerAddress: AddressMetadata = {
+                      ownerTokens: { [normalizedAddress]: tokenIds },
+                      metadata: {},
+                    };
+  
+                    // Check if there are changes in the metadata
+                    let metadataChanged = true; // Assume metadata has changed by default
+  
+                    for (const tokenId of tokenIds) {
+                      try {
+                        const meta: TokenMetadata = await this.getMeta(tokenId);
+                        metadataPerAddress.metadata[tokenId] = meta;
+                      } catch (error) {
+                        logger.error(`Error processing token #${tokenId} for address ${address}: ${error}`);
+                      }
+                      logger.info(`Metadata for token #${tokenId} saved!}`);
+                    }
+  
+                    // Check if there are changes in the metadata
+                    if (existingMetadata) {
+                      metadataChanged = !(await deepEqual(existingMetadata, metadataPerAddress));
+                    }
+  
+                    if (!metadataChanged) {
+                      logger.info(`Metadata for address ${normalizedAddress} has not changed. Skipping.`);
                       continue; // Skip to the next iteration
                     }
-            
-                    if (foundMatch) {
-                      break; // Break out of the loop for the current address
+  
+                    try {
+                      const addressFilePath = path.resolve(addressFolder, `${normalizedAddress}.json`);
+                      await fs.promises.writeFile(addressFilePath, JSON.stringify(metadataPerAddress, null, 2));
+                      logger.info(`Metadata saved for address ${normalizedAddress} at: ${addressFilePath}`);
+                      foundMatch = true; // Set the flag to true
+                    } catch (error) {
+                      logger.error(`Error writing file for address ${normalizedAddress}: ${error}`);
                     }
-            
-                    if (passedAddress.toLowerCase() === address.toLowerCase()) {
-                      if (tokenIds && Array.isArray(tokenIds)) {
-                        logger.info(`
-                          Processing from addresses.json: ${normalizedAddress} which should be ${address.toLowerCase()},
-                          Scraping ${tokenIds.length} tokens for address ${address},
-                          Address: ${address}, owns  ${tokenIds.length} Token IDs: ${tokenIds}
-                        `);
-            
-                        
-                        let metadataPerAddress: AddressMetadata = {
-                          ownerAddress: passedAddress,
-                          tokenIds: [],
-                          metadata: {},
-                        };
-
-                        // Check if there are changes in the metadata
-                        let metadataChanged = true; // Assume metadata has changed by default
-            
-                        for (const tokenId of tokenIds) {
-                          try {
-                            metadataPerAddress.tokenIds.push(tokenId);
-                            const meta: TokenId = await this.getMeta(tokenId);
-                            metadataPerAddress.metadata[tokenId] = meta;
-                          } catch (error) {
-                            logger.error(`Error processing token #${tokenId} for address ${address}: ${error}`);
-                          }
-                          logger.info(`Metadata for token #${tokenId} saved!}`);
-                        }
-            
-                        // Check if there are changes in the metadata
-                        if (existingMetadata) {
-                          metadataChanged = !(await deepEqual(existingMetadata, metadataPerAddress));
-                        }
-            
-                        // Update shouldWriteFile based on metadataChanged
-                        shouldWriteFile = metadataChanged;
-            
-                        if (shouldWriteFile) {
-                          try {
-                            const addressFilePath = path.resolve(addressFolder, `${normalizedAddress}.json`);
-                            await fs.promises.writeFile(addressFilePath, JSON.stringify(metadataPerAddress, null, 2));
-                            logger.info(`Metadata saved for address ${normalizedAddress} at: ${addressFilePath}`);
-                            foundMatch = true; // Set the flag to true
-                          } catch (error) {
-                            logger.error(`Error writing file for address ${normalizedAddress}: ${error}`);
-                          }
-            
-                          this.allAddressTokenMetadata[normalizedAddress] = metadataPerAddress;
-                          if (!agglomeratedData[contractAddress]) {
-                            agglomeratedData[contractAddress] = {};
-                          }
-            
-                          agglomeratedData[contractAddress][normalizedAddress] = metadataPerAddress;
-                        } else {
-                          logger.info(`Metadata for address ${normalizedAddress} has not changed. Skipping.`);
-                        }
-                      } else {
-                        logger.info(`Not an Array`);
-                      }
-                    } else {
-                      logger.info(`NoMatch ${address} + ${normalizedAddress}`);
+  
+                    this.allAddressTokenMetadata[normalizedAddress] = metadataPerAddress;
+                    if (!agglomeratedData[contractAddress]) {
+                      agglomeratedData[contractAddress] = {};
                     }
+  
+                    agglomeratedData[contractAddress][normalizedAddress] = metadataPerAddress;
                   } else {
-                    logger.info(`No tokenIds found for address: ${address}`);
+                    logger.info(`Not an Array`);
                   }
+                } else {
+                  logger.info(`NoMatch ${address} + ${normalizedAddress}`);
                 }
+              } else {
+                logger.info(`No tokenIds found for address: ${address}`);
               }
-            
-              logger.info('Loop completed for address.');
             }
-          } else {
-            logger.info('No addresses passed, possible insert "ALL scrape"');
           }
-      
-          const agglomeratedFilePath = path.resolve('./output/', `${contractAddress}_collected_metadata.json`);
-          
-          // Write the file only if shouldWriteFile is true
-          if (shouldWriteFile) {
-            await fs.promises.writeFile(agglomeratedFilePath, JSON.stringify(agglomeratedData, null, 2));
-          }
-      
-        } catch (error) {
-          logger.error('Error scraping metadata for addresses:', error);
         }
+  
+        logger.info('Loop completed for all addresses.');
+      } else {
+        logger.info('No addresses passed, possible insert "ALL scrape"');
       }
-      
-  async scrapeTokenMetadata(address: Address, tokenId: number, metadataPerAddress: AddressMetadata): Promise<void> {
-    try {
-      const URI: string = await this.contract.tokenURI(tokenId);
-      const { loc, URI: formattedURI } = collectURILocation(URI);
   
-      const metadata: Record<string, any> = await this.getHTTPMetadata(
-        loc === URILocation.IPFS ? `${this.IPFSGateway}${formattedURI}` : formattedURI
-      );
-      metadataPerAddress.tokenIds.push(tokenId);
-
-      // Store metadata in the appropriate mapping
-      metadataPerAddress.metadata[tokenId] = {
-        metadata
-      };
-  
-      // Add tokenId to the list for the address
-      metadataPerAddress.tokenIds.push(tokenId);
+      const agglomeratedFilePath = path.resolve(collectionFolder, `${contractAddress}_collected_metadata.json`);
+      await fs.promises.writeFile(agglomeratedFilePath, JSON.stringify(agglomeratedData, null, 2));
     } catch (error) {
-      logger.error(`Error fetching metadata for token #${tokenId} and address ${address}: ${error}`);
-      // If there's an error, you might want to throw or handle it appropriately.
-      throw error;
+      logger.error('Error scraping metadata for addresses:', error);
     }
   }
+  
+      
+      async scrapeTokenMetadata(address: Address, tokenId: number, metadataPerAddress: AddressMetadata): Promise<void> {
+        try {
+          const URI: string = await this.contract.tokenURI(tokenId);
+          const { loc, URI: formattedURI } = collectURILocation(URI);
+      
+          const metadata: Record<string, any> = await this.getHTTPMetadata(
+            loc === URILocation.IPFS ? `${this.IPFSGateway}${formattedURI}` : formattedURI
+          );
+      
+          metadataPerAddress.metadata[tokenId] = {
+            metadata,
+          };
+        } catch (error) {
+          logger.error(`Error fetching metadata for token #${tokenId} and address ${address}: ${error}`);
+          throw error;
+        }
+      }
   
   async createAddressTokenIdsMap(): Promise<AddressTokenIdsMap> {
     try {
@@ -692,7 +646,6 @@ export default class Meta {
       return {};
     }
   }
-
   async populateAllAddressTokenMetadata(): Promise<void> {
     try {
       const contractAddress: Address = `${process.env.CONTRACT}` || `0xFAb8E011F858270A3d41E4af3c2FDec0081B0eE3`;
@@ -701,7 +654,7 @@ export default class Meta {
   
       // Read existing addressTokenIds from the file
       const addressTokenIds: AddressTokenIdsMap = await this.readParsedAddressTokenIdsFromJSON();
-      
+  
       const collectionFolder = path.resolve('./output/', this.collectionName.toLowerCase().trim());
       const addressFolder = path.resolve(collectionFolder, 'addressesMeta');
       await fs.promises.mkdir(collectionFolder, { recursive: true });
@@ -718,39 +671,12 @@ export default class Meta {
             continue; // Skip to the next iteration
           }
   
-          if (tokenIds && Array.isArray(tokenIds)) {
-            logger.info(`Processing for address: ${address}`);
-            logger.info(`Scraping ${tokenIds.length} tokens for address ${address}`);
-            
-            let metadataPerAddress: AddressMetadata = {
-              ownerAddress: normalizedAddress,
-              tokenIds: [],
-              metadata: {},
-            };
+          const metadataPerAddress: AddressMetadata = await this.fetchMetadataForAddress(normalizedAddress, tokenIds);
   
-            for (const tokenId of tokenIds) {
-              try {
-                metadataPerAddress.tokenIds.push(tokenId);
-                const meta: TokenId = await this.getMeta(tokenId);
-                metadataPerAddress.metadata[tokenId] = meta;
-                logger.info(`Metadata for token #${tokenId} saved!}`);
-              } catch (error) {
-                logger.error(`Error processing token #${tokenId} for address ${address}: ${error}`);
-              }
-            }
-  
-            try {
-              const addressFilePath = path.resolve(addressFolder, `${normalizedAddress}.json`);
-              await fs.promises.writeFile(addressFilePath, JSON.stringify(metadataPerAddress, null, 2));
-              logger.info(`Metadata saved for address ${normalizedAddress} at: ${addressFilePath}`);
-              agglomeratedData[contractAddress] = agglomeratedData[contractAddress] || {};
-              agglomeratedData[contractAddress][normalizedAddress] = metadataPerAddress;
-            } catch (error) {
-              logger.error(`Error writing file for address ${normalizedAddress}: ${error}`);
-            }
-          } else {
-            logger.info(`No tokenIds found for address: ${address}`);
-          }
+          await fs.promises.writeFile(addressFolder, JSON.stringify(metadataPerAddress, null, 2));
+
+          agglomeratedData[contractAddress] = agglomeratedData[contractAddress] || {};
+          agglomeratedData[contractAddress][normalizedAddress] = metadataPerAddress;
         }
   
         logger.info('Metadata population completed for all addresses.');
@@ -767,7 +693,7 @@ export default class Meta {
   
 
 // Existing method
-async scrapeToken(address: string): Promise<void> {
+async scrapeToken(address: Address): Promise<void> {
   try {
     const addressTokenIdsJSON = fs.readFileSync('addressTokenIds.json', 'utf-8');
     const addressTokenIds: AddressTokenIdsMap = JSON.parse(addressTokenIdsJSON);
@@ -778,27 +704,8 @@ async scrapeToken(address: string): Promise<void> {
     }
 
     const tokenIds = addressTokenIds[address];
-    const metadataPerAddress: AddressMetadata = {
-      ownerAddress: address,
-      tokenIds: [],
-      metadata: {},
-    };
-    for (const tokenId of tokenIds) {
-      try {
-        const URI: string = await this.contract.tokenURI(tokenId);
-        const { loc, URI: formattedURI } = collectURILocation(URI);
+    const metadataPerAddress: AddressMetadata = await this.fetchMetadataForAddress(address, tokenIds);
 
-        const metadata = await this.getHTTPMetadata(loc === URILocation.IPFS ? `${this.IPFSGateway}${formattedURI}` : formattedURI);
-        metadataPerAddress.tokenIds.push(tokenId);
-        metadataPerAddress.metadata[tokenId] = {
-          metadata,
-        };
-      } catch (error) {
-        logger.error(`Error fetching metadata for token #${tokenId}: ${error}`);
-      }
-    }
-
-    metadataPerAddress.tokenIds = tokenIds;
     this.allAddressTokenMetadata[address] = metadataPerAddress;
 
     const addressFilePath = path.resolve(`./output/${this.collectionName}/${address}_metadata.json`);
@@ -876,11 +783,11 @@ async doIt(): Promise<void> {
 
       await this.doIt();
 
-/*       const shouldContinue = await promptVerifyContinue(
+      const shouldContinue = await promptVerifyContinue(
         "Continue to populate all owners? (true/false)"
       );
       
-      await this.populateAllAddressTokenMetadata(); */
+      await this.populateAllAddressTokenMetadata();
 
         //await this.scrapeOriginalToken(this.lastScrapedToken + 1);
       

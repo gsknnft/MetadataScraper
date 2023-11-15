@@ -4,19 +4,47 @@ import XLSX from 'xlsx';
 //import { google } from 'googleapis';
 import { saveAs } from 'file-saver';
 import {GoogleAuth} from 'google-auth-library';
-
+import ReadData, {AllAddressesMetadata, TokenMetadata} from './readData'
+import {ClaimsRecord} from './traitChecker'
 // Authenticate using your Google Sheets credentials
 // Replace 'YOUR_CREDENTIALS' with your actual credentials file path
 //const credentials = require('YOUR_CREDENTIALS.json');
 // Authenticate using your Google Cloud credentials
 // Replace 'YOUR_CREDENTIALS' with your actual credentials file path
 // const cloudCredentials = require('YOUR_CLOUD_CREDENTIALS.json');
+const credentials = require('YOUR_CREDENTIALS.json')
 
-/* // Set up the OAuth2 client for Google Sheets
-async function authenticateGoogleSheets() {
+
+export class GSheets {
+  const readData = new ReadData();
+
+// Set up the OAuth2 client for Google Cloud
+async authenticateGoogleCloud(): Promise<boolean> {
+  let success: boolean = false;
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials,
+    const auth = new GoogleAuth({
+      credentials: credentials,
+      scopes: 'https://www.googleapis.com/auth/cloud-platform',
+    });
+
+    const client = await auth.getClient();
+    const projectId = await auth.getProjectId();
+    const url = `https://dns.googleapis.com/dns/v1/projects/${projectId}`;
+    const res = await client.request({ url });
+    success = true;
+    console.log(res.data);
+  } catch (error) {
+    console.error('Error authenticating for Google Cloud:', error);
+    throw error;
+  }
+  return success;
+}
+
+// Set up the OAuth2 client for Google Sheets
+async authenticateGoogleSheets() {
+  try {
+    const auth = new GoogleAuth({
+      credentials: credentials,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
     
@@ -28,39 +56,27 @@ async function authenticateGoogleSheets() {
     throw error;
   }
 }
- */
-
-// Set up the OAuth2 client for Google Cloud
-async function authenticateGoogleCloud() {
-  try {
-    const auth = new GoogleAuth({
-      scopes: 'https://www.googleapis.com/auth/cloud-platform',
-    });
-
-    const client = await auth.getClient();
-    const projectId = await auth.getProjectId();
-    const url = `https://dns.googleapis.com/dns/v1/projects/${projectId}`;
-    const res = await client.request({ url });
-    console.log(res.data);
-  } catch (error) {
-    console.error('Error authenticating for Google Cloud:', error);
-    throw error;
-  }
-}
-
-export { authenticateGoogleCloud };
-
-// -----------
 
 // Load the Excel file
 const workbook = XLSX.readFile('YOUR_FILE_PATH.xlsx'); // Replace with the actual file path
 
+// Define the data you want to upload (you can use 'data' from your example)
+const requestData = {
+  spreadsheetId: 'YOUR_SPREADSHEET_ID', // Replace with your spreadsheet ID
+  range: 'Sheet1', // The range where you want to start populating data
+  valueInputOption: 'RAW',
+  resource: {
+    values: data, // The data you've read from the Excel file
+  },
+};
+
+const filePath = './sheets/';
 // Choose the sheet you want to read (e.g., Sheet1)
-const sheetName = workbook.SheetNames[0];
-const worksheet_ = workbook.Sheets[sheetName];
+const sheetName = this.workbook.SheetNames[0];
+const worksheet_ = this.workbook.Sheets[this.sheetName];
 
 // Parse the data into a JavaScript object
-const data = XLSX.utils.sheet_to_json(worksheet_);
+const data = XLSX.utils.sheet_to_json(this.worksheet_);
 
 const columns = [
   {
@@ -81,30 +97,27 @@ const columns = [
   },
 ];
 
-const saveFile = async (fileName: string, wb: any) => {
+async saveFile(fileName: string, wb: any) {
+  try {
   const xls64 = await wb.xlsx.writeBuffer({ base64: true });
+  } catch (error) {
+    throw new Error(`Error: ${error}`)
+  }
+  try {
+    const blob = new Blob();
   saveAs(
     new Blob([xls64], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     }),
     fileName
   );
+  } catch (error) {
+    throw new Error(`Error ${error}`)
+  }
 };
 
-
-/* // Define the data you want to upload (you can use 'data' from your example)
-const requestData = {
-  spreadsheetId: 'YOUR_SPREADSHEET_ID', // Replace with your spreadsheet ID
-  range: 'Sheet1', // The range where you want to start populating data
-  valueInputOption: 'RAW',
-  resource: {
-    values: data, // The data you've read from the Excel file
-  },
-}; */
-
-const filePath = './sheets/';
-
-export function generateSpreadsheet(data, sheetName = 'Sheet1') {
+async generateSpreadsheet(sheetName = 'Sheet1') {
+  const data = await this.readData.readAddressTokenIdsFromJSON();
   // Create a new workbook
   const workbook = XLSX.utils.book_new();
 
@@ -115,7 +128,7 @@ export function generateSpreadsheet(data, sheetName = 'Sheet1') {
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
   // Generate a blob containing the spreadsheet data
-  const blob = XLSX.write(workbook, { bookType: 'xlsx', type: 'blob' });
+  const blob = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
 
   // Create a URL for the blob
   const url = URL.createObjectURL(blob);
@@ -132,12 +145,11 @@ const { worksheet, url, blob } = generateSpreadsheet(data);
 // Open the generated spreadsheet in a new tab (optional)
 window.open(url);
 
-module.exports = { generateSpreadsheet }
-/* // Upload the data to Google Sheets
+ // Upload the data to Google Sheets
 async function uploadToGoogleSheets() {
   try {
     // Authenticate using your credentials
-    const auth = new google.auth.GoogleAuth({
+    const auth = google.auth.GoogleAuth({
       credentials,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
@@ -152,7 +164,7 @@ async function uploadToGoogleSheets() {
     // Define the data you want to upload (you can use 'data' from your example)
     const requestData = {
       spreadsheetId: 'YOUR_SPREADSHEET_ID', // Replace with your spreadsheet ID
-      range: sheetName, // The range where you want to start populating data
+      range: ysheetName, // The range where you want to start populating data
       valueInputOption: 'RAW',
       resource: {
         values: XLSX.utils.sheet_to_json(worksheet), // The data from the worksheet
@@ -169,10 +181,12 @@ async function uploadToGoogleSheets() {
     console.error('Error uploading data to Google Sheets:', error);
   }
 }
-// Trigger the upload operation
-uploadToGoogleSheets(); */
+}
+
+
 
 /* 
+uploadToGoogleSheets();
 
 // Example data (replace with your actual data)
 const data = [

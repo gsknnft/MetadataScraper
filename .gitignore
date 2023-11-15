@@ -12,6 +12,7 @@ dist/
 
 # Ouput files
 output/
+output1/
 
 # Mac
 .DS_Store

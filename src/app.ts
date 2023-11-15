@@ -1,7 +1,9 @@
-import Meta from "./meta"; // Flipper
+import Meta, { shouldContinue } from "./meta"; // Flipper
 import * as dotenv from "dotenv"; // Env vars
 import { logger } from "./utils/logger"; // Logging
 import { promptVerifyContinue } from './utils/prompt';
+import { TraitChecker } from "./meta/traitChecker";
+import ReadData from "./meta/readData";
 
 // Setup env
 dotenv.config();
@@ -19,7 +21,7 @@ dotenv.config();
     process.exit(1);
   }
 
-  // Setup flipper and process
+  // Setup meta and process
   const meta = new Meta(rpcURL, IPFSGateway, contractAddress);
 /* const addresses = await meta.readAddressesFromJSON();
   logger.info(`${JSON.stringify(addresses, null, 2)}`)
@@ -32,17 +34,33 @@ dotenv.config();
   readParsedAddressTokenIdsFromJSON: ${JSON.stringify(data2, null, 2)}`
   ) */
 
-  //await meta.processAddresses();
+  await meta.processAddresses();
+
+  await meta.createAddressTokenIdsMap();
+
   const shouldContinue = await promptVerifyContinue(
     "Continue? (true/false)"
   );
-  await meta.doIt();
+  await meta.process();
   shouldContinue;
+  const read = new ReadData();
+  logger.info(`Read & Extract`)
+  await read.readCollectedData()
+  shouldContinue;
+    logger.info(`Trait Checker`)
+  const traitChecker = new TraitChecker();
+  traitChecker.runChecker();
+  //await meta.createAddressTokenMetadata();
+  shouldContinue;
+   try {
+    // Now you can log or handle the result as needed
+    const claimableAddresses = await traitChecker.readExistingClaimableAddresses();
+    logger.info('Claimable Addresses:', claimableAddresses);
+  } catch (error) {
+    logger.error(`ERROR: ${error}`)
+
+  }
 
   //await meta.process();
-
-  //await meta.createAddressTokenIdsMap();
-  shouldContinue;
-  //await meta.createAddressTokenMetadata();
 
 })();
