@@ -11,7 +11,6 @@ import { Address } from '@thirdweb-dev/sdk';
 import _default from 'vuex';
 import { isDeepStrictEqual } from 'util';
 
-export const shouldContinue = promptVerifyContinue("Continue? (true/false)");
 
 export async function deepEqual(obj1: any, obj2: any): Promise<boolean> {
 
@@ -812,6 +811,7 @@ async scrapeToken(address: string): Promise<void> {
   }
 }
 
+shouldContinue = promptVerifyContinue("Continue? (true/false)");
 
 async doIt(): Promise<void> {
   try {

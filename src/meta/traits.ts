@@ -27,7 +27,7 @@ export const songsData: Songs = {
 };
 
 export const framesData: Frames = {
-  color: ['Red', `Green`, `Purple`, `Silver`, `Gold`],
+  color: ['Red', `Green`, `Purple`, `Blue`, `Silver`, `Gold`],
 };
 
 export enum TraitType {

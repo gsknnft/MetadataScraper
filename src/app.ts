@@ -1,10 +1,12 @@
-import Meta, { shouldContinue } from "./meta"; // Flipper
+import Meta from "./meta"; // Flipper
 import * as dotenv from "dotenv"; // Env vars
 import { logger } from "./utils/logger"; // Logging
 import { promptVerifyContinue } from './utils/prompt';
 import { TraitChecker } from "./meta/traitChecker";
 import ReadData from "./meta/readData";
-
+const shouldContinue = promptVerifyContinue(
+  "Continue? (true/false)"
+);
 // Setup env
 dotenv.config();
 
@@ -38,15 +40,12 @@ dotenv.config();
 
   await meta.createAddressTokenIdsMap();
 
-  const shouldContinue = await promptVerifyContinue(
-    "Continue? (true/false)"
-  );
-  await meta.process();
+/*   await meta.process();
   shouldContinue;
   const read = new ReadData();
   logger.info(`Read & Extract`)
   await read.readCollectedData()
-  shouldContinue;
+  shouldContinue; */
     logger.info(`Trait Checker`)
   const traitChecker = new TraitChecker();
   traitChecker.runChecker();

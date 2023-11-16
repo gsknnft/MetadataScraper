@@ -10,10 +10,12 @@ import { Alchemy, Network } from 'alchemy-sdk';
 import { Address } from '@thirdweb-dev/sdk';
 import _default from 'vuex';
 import { isDeepStrictEqual } from 'util';
-import Meta, {} from '../meta';
+import Meta, {AddressTokenIdsMap} from '../meta';
+import { add } from 'winston';
+import { TraitType } from './traits';
 
 export interface Attribute {
-  trait_type: string;
+  trait_type: TraitType;
   value: string;
 }
 
@@ -35,7 +37,7 @@ export interface AddressMetadata {
 }
 
 export interface AllAddressesMetadata {
-  [contractAddress: string]: Record<string, AddressMetadata>;
+  [contractAddress: string]: Record<Address, AddressMetadata>;
 }
 
   
@@ -90,6 +92,20 @@ async readSanitizedAddressesFromJSON(): Promise<Address[]> {
       return [];
     }
   }
+
+  async readSanAddressesFromJSON(): Promise<AddressTokenIdsMap> {
+    let addresses: AddressTokenIdsMap;
+    try {
+      const addressesJSON = await fs.promises.readFile('addressTokenIds.json', 'utf-8');
+      const addresses: AddressTokenIdsMap = JSON.parse(addressesJSON);
+
+      // Ensure each element in the array is treated as a string  
+      return addresses;
+    } catch (error) {
+      logger.error("Error reading addresses from 'addresses.json':", error);
+      return {};
+    }
+  }
   
 
   async readIndexedAddressesFromJSON(): Promise<{ index: number; address: Address }[]> {
@@ -109,6 +125,7 @@ async readSanitizedAddressesFromJSON(): Promise<Address[]> {
       return [];
     }
   }
+  
 
   async readCollectedData(): Promise<AllAddressesMetadata> {
     const contract = process.env.CONTRACT || '';
