@@ -106,6 +106,7 @@ async readSanitizedAddressesFromJSON(): Promise<Address[]> {
       return {};
     }
   }
+
   
 
   async readIndexedAddressesFromJSON(): Promise<{ index: number; address: Address }[]> {
@@ -246,11 +247,12 @@ async readSanitizedAddressesFromJSON(): Promise<Address[]> {
       return [];
     }
   }
+
   async readIndexedAddressTokenIdsFromJSON(): Promise<[Address, number[]][]> {
     try {
       const addressTokenIdsJSON = await fs.promises.readFile('addressTokenIds.json', 'utf-8');
       // Parse the content as JSON, which results in an object
-      const parsedObject = JSON.parse(addressTokenIdsJSON);
+      const parsedObject: AddressTokenIdsMap = JSON.parse(addressTokenIdsJSON);
       // Convert the object to an array of key-value pairs
       const keyValueArray: [Address, number[]][] = Object.entries(parsedObject);
   

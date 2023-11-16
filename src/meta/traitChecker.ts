@@ -3,7 +3,7 @@ import path from 'path';
 import ReadData, {  AllAddressesMetadata, AddressMetadata, TokenMetadata, Attribute, TokenId } from './readData'; // Assuming the file is in the same directory
 import { logger } from '../utils/logger';
 import { Songs, Song, Frame, Frames, FrameTrait, SongTrait, TraitType } from './traits'
-import Meta, {deepEqual} from '../meta';
+import Meta, {deepEqual, AddressTokenIdsMap} from '../meta';
 import { promptVerifyContinue } from '../utils/prompt';
 import { Address } from 'web3';
 import { check } from 'prettier';
@@ -112,37 +112,81 @@ export class TraitChecker {
     return [...uniqueSongs];
   }
 
+
+  async checkData() {
+    const addressMetadata = await this.readData.readCollectedAddressData();
+    const allAddressesData = await this.readData.readIndexedAddressesFromJSON();
+    const allAddressTokenData = await this.readData.readIndexedAddressTokenIdsFromJSON();
+    for (const ownerData of allAddressesData) {
+      const owner = ownerData.address;
+      const tokenIds = addressMetadata.tokenIds;
+      for (const [address, tokenIds] of allAddressTokenData) {
+        const IDs = tokenIds;
+        const numTokens = IDs.length;
+        if (address == owner) {
+        for (const tokenId of tokenIds) {
+          logger.info(`Checking Data: ${address}  ... ${JSON.stringify(IDs, null, 2)} ... ${numTokens}`);
+
+        }
+      }
+    }
+  }
+}
+
   async checkCondition(
     addressMetadata: AddressMetadata,
     tokenMetadata: TokenMetadata,
     condition: Condition
   ): Promise<boolean> {
     const allAddressesData = await this.readData.readIndexedAddressesFromJSON();
+    const allAddressTokenData = await this.readData.readIndexedAddressTokenIdsFromJSON();
     try {
       const normalizedTraitToCheck = await this.normalizeTraits(condition.if, TraitType.Song);
       const normalizedMustHave = await this.normalizeTraits(condition.mustHave, TraitType.Frame);
   
       logger.info(`normalizedTraitToCheck: ${JSON.stringify(normalizedTraitToCheck, null, 2)}`);
       logger.info(`normalizedMustHave: ${JSON.stringify(normalizedMustHave, null, 2)}`);
-  
       // Check requiresOneSongAllColors condition
       if (condition.requiresOneSongAllColors) {
         logger.info('Checking requiresOneSongAllColors condition...');
-  
+
+
+        //this.checkData();
+
         for (const ownerData of allAddressesData) {
-          const owner = ownerData.address;
+          const address = ownerData.address;
           const tokenIds = addressMetadata.tokenIds;
-        
+          const numTokens = tokenIds.length;
+/*           let dataStorage = {
+            tokenIds: tokenIds,
+            metadata: {},
+            attributes: {}
+          }; */
+          logger.info(`Checking Data: ${address}  ... ${JSON.stringify(tokenIds, null, 2)} ... ${numTokens}`);
           for (let i = 0; i < tokenIds.length; i++) {
             const tokenId = tokenIds[i];
+
+
+/*            for (const [address, tokenIds] of allAddressTokenData) {
+            const numTokens = tokenIds.length;
+            logger.info(`Checking Data: ${address}  ... ${JSON.stringify(tokenIds)} ... ${numTokens}`);
+            for (const tokenId of tokenIds) {
+ */
+
             logger.info(`Checking ${tokenId}...`);
         
-            const data = addressMetadata.metadata[tokenId]?.metadata;
+            const data = addressMetadata.metadata[tokenId].metadata;
         
-  
+
             if (data) {
               const attributes = data.attributes;
-  
+/*               dataStorage = {
+                tokenIds: tokenIds,
+                metadata: data,
+                attributes: attributes
+              } */
+              //logger.info(`DataStore: ${JSON.stringify([dataStorage], null, 2)}`);
+
               // Check if tokenMetadata.attributes is defined before using .some()
               const tokenHasValidFrame = attributes && attributes.some(
                 (attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame
@@ -190,7 +234,7 @@ export class TraitChecker {
                       });
   
                     logger.info(`Song ${songValue} - HasAllColors: ${hasAllColors}`);
-                    logger.info(`Owner ${owner} HasAllColors: ${hasAllColors} of Song ${songValue}`);
+                    logger.info(`Owner ${address} HasAllColors: ${hasAllColors} of Song ${songValue}`);
                     if (hasAllColors) {
                       const traitConditionMet = await this.checkCondition(
                         addressMetadata,
@@ -200,7 +244,7 @@ export class TraitChecker {
   
                       if (traitConditionMet) {
                         await this.markAndSave({ addressMetadata, traitConditionMet });
-                        logger.info('Claimable address:', owner); // Log the claimable address
+                        logger.info('Claimable address:', address); // Log the claimable address
                       }
                     }
                   }
@@ -232,7 +276,7 @@ export class TraitChecker {
                     });
   
                   logger.info(`Frame Color ${frameColor} - HasAllSongs: ${hasAllSongs}`);
-                  logger.info(`Owner ${owner} HasAllSongs: ${hasAllSongs} of Frame Color ${frameColor}`);
+                  logger.info(`Owner ${address} HasAllSongs: ${hasAllSongs} of Frame Color ${frameColor}`);
                   if (hasAllSongs) {
                     const traitConditionMet = await this.checkCondition(
                       addressMetadata,
@@ -242,7 +286,7 @@ export class TraitChecker {
   
                     if (traitConditionMet) {
                       await this.markAndSave({ addressMetadata, traitConditionMet });
-                      logger.info('Claimable address:', owner); // Log the claimable address
+                      logger.info('Claimable address:', address); // Log the claimable address
                     }
                   }
                 }
@@ -271,7 +315,7 @@ export class TraitChecker {
           return false;
         }
       }
-      logger.info('No conditions met for address:', owner, tokenIds);
+      logger.info('No conditions met for address:', address, tokenIds);
       }
     }
 
