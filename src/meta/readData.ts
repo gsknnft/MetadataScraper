@@ -26,6 +26,10 @@ export interface TokenMetadata {
   attributes: Attribute[];
 }
 
+export interface AllAddressesMetadata2 {
+  [contractAddress: string]: Record<Address, AddressMetadata>;
+}
+
 export interface TokenId {
   metadata: TokenMetadata;
 }

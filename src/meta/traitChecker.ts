@@ -42,7 +42,7 @@ export interface ClaimableAddress {
 
 
 const frameEqualizer: Record<string, string> = {
-  "Daddy's Colors": "Frame",
+  "Daddress's Colors": "Frame",
   "Colors": "Frame",
   "Frame": "Frame",
 };
@@ -113,26 +113,6 @@ export class TraitChecker {
   }
 
 
-  async checkData() {
-    const addressMetadata = await this.readData.readCollectedAddressData();
-    const allAddressesData = await this.readData.readIndexedAddressesFromJSON();
-    const allAddressTokenData = await this.readData.readIndexedAddressTokenIdsFromJSON();
-    for (const ownerData of allAddressesData) {
-      const owner = ownerData.address;
-      const tokenIds = addressMetadata.tokenIds;
-      for (const [address, tokenIds] of allAddressTokenData) {
-        const IDs = tokenIds;
-        const numTokens = IDs.length;
-        if (address == owner) {
-        for (const tokenId of tokenIds) {
-          logger.info(`Checking Data: ${address}  ... ${JSON.stringify(IDs, null, 2)} ... ${numTokens}`);
-
-        }
-      }
-    }
-  }
-}
-
   async checkCondition(
     addressMetadata: AddressMetadata,
     tokenMetadata: TokenMetadata,
@@ -140,194 +120,209 @@ export class TraitChecker {
   ): Promise<boolean> {
     const allAddressesData = await this.readData.readIndexedAddressesFromJSON();
     const allAddressTokenData = await this.readData.readIndexedAddressTokenIdsFromJSON();
-    try {
-      const normalizedTraitToCheck = await this.normalizeTraits(condition.if, TraitType.Song);
-      const normalizedMustHave = await this.normalizeTraits(condition.mustHave, TraitType.Frame);
+    const tokenData = await this.readData.readCollectedData();
   
-      logger.info(`normalizedTraitToCheck: ${JSON.stringify(normalizedTraitToCheck, null, 2)}`);
-      logger.info(`normalizedMustHave: ${JSON.stringify(normalizedMustHave, null, 2)}`);
-      // Check requiresOneSongAllColors condition
-      if (condition.requiresOneSongAllColors) {
-        logger.info('Checking requiresOneSongAllColors condition...');
-
-
-        //this.checkData();
-
-        for (const ownerData of allAddressesData) {
-          const address = ownerData.address;
-          const tokenIds = addressMetadata.tokenIds;
-          const numTokens = tokenIds.length;
-/*           let dataStorage = {
-            tokenIds: tokenIds,
-            metadata: {},
-            attributes: {}
-          }; */
-          logger.info(`Checking Data: ${address}  ... ${JSON.stringify(tokenIds, null, 2)} ... ${numTokens}`);
-          for (let i = 0; i < tokenIds.length; i++) {
-            const tokenId = tokenIds[i];
-
-
-/*            for (const [address, tokenIds] of allAddressTokenData) {
-            const numTokens = tokenIds.length;
-            logger.info(`Checking Data: ${address}  ... ${JSON.stringify(tokenIds)} ... ${numTokens}`);
-            for (const tokenId of tokenIds) {
- */
-
-            logger.info(`Checking ${tokenId}...`);
-        
-            const data = addressMetadata.metadata[tokenId].metadata;
-        
-
-            if (data) {
-              const attributes = data.attributes;
-/*               dataStorage = {
-                tokenIds: tokenIds,
-                metadata: data,
-                attributes: attributes
-              } */
-              //logger.info(`DataStore: ${JSON.stringify([dataStorage], null, 2)}`);
-
-              // Check if tokenMetadata.attributes is defined before using .some()
-              const tokenHasValidFrame = attributes && attributes.some(
-                (attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame
-              );
+    const normalizedTraitToCheck = await this.normalizeTraits(condition.if, TraitType.Song);
+    const normalizedMustHave = await this.normalizeTraits(condition.mustHave, TraitType.Frame);
   
-              const uniqueSongs = await this.getUniqueSongs(attributes);
-              const uniqueFrames = await this.getUniqueFrames(attributes);
-              logger.info(`uniqueSongs: ${JSON.stringify([...uniqueSongs], null, 2)}`);
-              logger.info(`uniqueFrames: ${JSON.stringify([...uniqueFrames], null, 2)}`);
+    logger.info(`normalizedTraitToCheck: ${JSON.stringify(normalizedTraitToCheck, null, 2)}`);
+    logger.info(`normalizedMustHave: ${JSON.stringify(normalizedMustHave, null, 2)}`);
+    const claimableAddresses = [];
   
-              // Check for the presence of required traits
-              if (
-                condition.requiresOneSongAllColors &&
-                normalizedTraitToCheck.includes(TraitType.Song) &&
-                normalizedMustHave.includes(TraitType.Frame)
-              ) {
-                if (
-                  (condition.requiresOneSongAllColors && tokenHasValidFrame) ||
-                  (condition.allSongsOneColor && tokenHasValidFrame)
-                ) {
-                  // Additional conditions for requiresOneSongAllColors
+    // Check requiresOneSongAllColors condition
+    if (condition.requiresOneSongAllColors) {
+      logger.info('Checking requiresOneSongAllColors condition...');
   
-                  const hasAllColors = attributes
-                    .filter((attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame)
-                    .every((attribute) => {
-                      const correspondingSong = attributes.find(
-                        (attr) => attr.trait_type === TraitType.Song && attr.value === attribute.value
+      try {
+        for (const contractAddress in tokenData) {
+          if (tokenData.hasOwnProperty(contractAddress)) {
+            logger.info(`
+              Checking ${contractAddress} for ${Object.keys(tokenData[contractAddress]).length} owners
+              Contract: ${contractAddress.toLowerCase()}.
+            `);
+            const ownerAddressesData = tokenData[contractAddress];
+            for (const ownerAddress in ownerAddressesData) {
+              if (ownerAddressesData.hasOwnProperty(ownerAddress)) {
+                const addressData = ownerAddressesData[ownerAddress];
+                const ownerAddressValue = addressData.ownerAddress;
+                const tokenIds = addressData.tokenIds;
+                if (tokenIds && Array.isArray(tokenIds) && tokenIds.length > 0) {
+                  const extractedMetadata: AddressMetadata = {
+                    ownerAddress: ownerAddressValue,
+                    tokenIds: [],
+                    metadata: {},
+                  };
+                  for (const tokenIdStr of tokenIds) {
+                    const tokenId = Number(tokenIdStr);
+  
+                    if (!isNaN(tokenId)) {
+                      const tokenMetadataIndex = addressData.metadata[tokenId];
+  
+                      if (tokenMetadataIndex) {
+                        const tokenMetadata = tokenMetadataIndex.metadata;
+                        if (tokenMetadata) {
+                          const attributes: Attribute[] = tokenMetadata.attributes;
+                          const extractedTokenMetadata: TokenMetadata = {
+                            name: tokenMetadata.name,
+                            description: tokenMetadata.description,
+                            image: tokenMetadata.image,
+                            attributes: attributes,
+                          };
+  
+                          extractedMetadata.metadata[tokenId] = {
+                            metadata: extractedTokenMetadata,
+                          };
+                          extractedMetadata.tokenIds.push(tokenId);
+                          const tokenHasValidFrame = attributes && attributes.some(
+                            (attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame
+                          );
+                          const uniqueSongs = await this.getUniqueSongs(attributes);
+                          const uniqueFrames = await this.getUniqueFrames(attributes);
+                          logger.info(`uniqueSongs: ${JSON.stringify([...uniqueSongs], null, 2)}`);
+                          logger.info(`uniqueFrames: ${JSON.stringify([...uniqueFrames], null, 2)}`);
+                          // Check for the presence of required traits
+                          if (
+                            condition.requiresOneSongAllColors &&
+                            normalizedTraitToCheck.includes(TraitType.Song) &&
+                            normalizedMustHave.includes(TraitType.Frame)
+                          ) {
+                            if (
+                              (condition.requiresOneSongAllColors && tokenHasValidFrame) ||
+                              (condition.allSongsOneColor && tokenHasValidFrame)
+                            ) {
+                              // Additional conditions for requiresOneSongAllColors
+                              const songsArray: string[] = [];
+                              const hasAllColors = attributes
+                                .filter((attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame)
+                                .every((attribute) => {
+                                  const correspondingSong = attributes.find(
+                                    (attr) => attr.trait_type === TraitType.Song && attr.value === attribute.value
+                                  );
+                                  songsArray.push(JSON.stringify(correspondingSong))
+                                  return correspondingSong !== undefined;
+                                });
+                              for (const songAttribute of attributes.filter(attribute => attribute.trait_type === TraitType.Song)) {
+                                const songValue = songAttribute.value;
+  
+                                // Check if the song is present in all frame colors
+                                const hasAllColors = attributes
+                                  .filter(frameAttribute => frameEqualizer[frameAttribute.trait_type] === TraitType.Frame)
+                                  .every(frameAttribute => {
+                                    // Check if there is a corresponding song with the same value
+                                    const correspondingSong = attributes.find(
+                                      attr => attr.trait_type === TraitType.Song && attr.value === frameAttribute.value
+                                    );
+                                    songsArray.push(JSON.stringify(correspondingSong))
+                                    return correspondingSong !== undefined;
+                                  });
+                                const satisfyingTokens: number[] = [];
+                                logger.info(`Song ${songValue} - HasAllColors: ${hasAllColors}`);
+                                logger.info(`Owner ${ownerAddressValue} HasAllColors: ${hasAllColors} of Song ${songValue}`);
+                                if (hasAllColors) {
+                                  if (satisfyingTokens.length > 0) {
+                                    claimableAddresses.push({
+                                      address: ownerAddressValue,
+                                      satisfyingTokens: satisfyingTokens,
+                                      meta: {
+                                        attributes,
+                                        songsArray,
+                                      },
+                                      claim: 2,
+                                      qty: 1
+                                    });
+                                  }
+                                  const traitConditionMet = hasAllColors;
+                                  await this.markAndSave({ addressMetadata, traitConditionMet });
+                                  logger.info('Claimable address:', ownerAddressValue); // Log the claimable address
+                                }
+                              }
+                            }
+                          }
+                          if (
+                            condition.allSongsOneColor &&
+                            normalizedTraitToCheck.includes(TraitType.Frame) &&
+                            normalizedMustHave.includes(TraitType.Song)
+                          ) {
+                            // Additional conditions for allSongsOneColor
+  
+                            for (const frameAttribute of tokenMetadata.attributes.filter(
+                              (attribute) => attribute.trait_type === TraitType.Frame
+                            )) {
+                              const frameColor = frameAttribute.value;
+  
+                              // Check if the frame color is present in all songs
+                              const hasAllSongs = tokenMetadata.attributes
+                                .filter((songAttribute) => frameEqualizer[songAttribute.trait_type] === TraitType.Song)
+                                .every((songAttribute) => {
+                                  // Check if there is a corresponding song with the same value
+                                  const correspondingSong = tokenMetadata.attributes.find(
+                                    (attr) => attr.trait_type === TraitType.Song && attr.value === songAttribute.value
+                                  );
+  
+                                  return correspondingSong !== undefined;
+                                });
+  
+                              logger.info(`Frame Color ${frameColor} - HasAllSongs: ${hasAllSongs}`);
+                              logger.info(`Owner ${ownerAddressValue} HasAllSongs: ${hasAllSongs} of Frame Color ${frameColor}`);
+                              if (hasAllSongs) {
+                                const traitConditionMet = hasAllSongs;
+                                await this.markAndSave({ addressMetadata, traitConditionMet, claimIndex: 1, quantity: 1 });
+                                logger.info('Claimable address:', ownerAddressValue); // Log the claimable address
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    // Check for required token tokenIds
+                    if (condition.requiredTokenIds && condition.requiredTokenIds.length > 0) {
+                      const hasRequiredTokenIds = condition.requiredTokenIds.some((tokenId) =>
+                        addressMetadata.tokenIds.includes(tokenId)
                       );
-                      return correspondingSong !== undefined;
-                    });
+      
+                      if (hasRequiredTokenIds) {
+                        logger.info(`address: ${ownerAddressValue} satisfies requirements of holding one of ${condition.requiredTokenIds} - ${tokenId}`);
+                      } else {
+                        return false;
+                      }
+                    }
   
-                  for (const songAttribute of attributes.filter(attribute => attribute.trait_type === TraitType.Song)) {
-                    const songValue = songAttribute.value;
-  
-                    // Check if the song is present in all frame colors
-                    const hasAllColors = attributes
-                      .filter(frameAttribute => frameEqualizer[frameAttribute.trait_type] === TraitType.Frame)
-                      .every(frameAttribute => {
-                        // Check if there is a corresponding song with the same value
-                        const correspondingSong = attributes.find(
-                          attr => attr.trait_type === TraitType.Song && attr.value === frameAttribute.value
-                        );
-  
-                        return correspondingSong !== undefined;
-                      });
-  
-                    logger.info(`Song ${songValue} - HasAllColors: ${hasAllColors}`);
-                    logger.info(`Owner ${address} HasAllColors: ${hasAllColors} of Song ${songValue}`);
-                    if (hasAllColors) {
-                      const traitConditionMet = await this.checkCondition(
-                        addressMetadata,
-                        tokenMetadata,
-                        { if: normalizedTraitToCheck, mustHave: normalizedMustHave }
-                      );
-  
-                      if (traitConditionMet) {
-                        await this.markAndSave({ addressMetadata, traitConditionMet });
-                        logger.info('Claimable address:', address); // Log the claimable address
+                    // Check for minimum token quantity
+                    if (condition.minTokenQuantity !== undefined) {
+                      const tokenQuantity = addressMetadata.tokenIds.length;
+                      if (tokenQuantity >= condition.minTokenQuantity) {
+                        logger.info(`address: ${ownerAddressValue} satisfies requirements of holding enough of ${condition.minTokenQuantity} - ${tokenQuantity}`);
+                      } else {
+                        return false;
                       }
                     }
                   }
                 }
-              }
-  
-              if (
-                condition.allSongsOneColor &&
-                normalizedTraitToCheck.includes(TraitType.Frame) &&
-                normalizedMustHave.includes(TraitType.Song)
-              ) {
-                // Additional conditions for allSongsOneColor
-  
-                for (const frameAttribute of tokenMetadata.attributes.filter(
-                  (attribute) => attribute.trait_type === TraitType.Frame
-                )) {
-                  const frameColor = frameAttribute.value;
-  
-                  // Check if the frame color is present in all songs
-                  const hasAllSongs = tokenMetadata.attributes
-                    .filter((songAttribute) => frameEqualizer[songAttribute.trait_type] === TraitType.Song)
-                    .every((songAttribute) => {
-                      // Check if there is a corresponding song with the same value
-                      const correspondingSong = tokenMetadata.attributes.find(
-                        (attr) => attr.trait_type === TraitType.Song && attr.value === songAttribute.value
-                      );
-  
-                      return correspondingSong !== undefined;
-                    });
-  
-                  logger.info(`Frame Color ${frameColor} - HasAllSongs: ${hasAllSongs}`);
-                  logger.info(`Owner ${address} HasAllSongs: ${hasAllSongs} of Frame Color ${frameColor}`);
-                  if (hasAllSongs) {
-                    const traitConditionMet = await this.checkCondition(
-                      addressMetadata,
-                      tokenMetadata,
-                      { if: normalizedTraitToCheck, mustHave: normalizedMustHave }
-                    );
-  
-                    if (traitConditionMet) {
-                      await this.markAndSave({ addressMetadata, traitConditionMet });
-                      logger.info('Claimable address:', address); // Log the claimable address
-                    }
-                  }
-                }
+                logger.info('No conditions met for address:', ownerAddressValue, tokenIds);
               }
             }
-          
-      // Check for required token IDs
-      if (condition.requiredTokenIds && condition.requiredTokenIds.length > 0) {
-        const hasRequiredTokenIds = condition.requiredTokenIds.some((tokenId) =>
-          addressMetadata.tokenIds.includes(tokenId)
-        );
-  
-        if (hasRequiredTokenIds) {
-            logger.info(`address: ${addressMetadata.ownerAddress} satisfies requirements of holding one of ${condition.requiredTokenIds} - ${tokenId}`);
-          } else {
-          return false;
+            // Process claimable addresses after the loops
+            for (const claimableAddress of claimableAddresses) {
+              // Access the claimable address and its satisfying tokens as needed
+              const { address, satisfyingTokens } = claimableAddress;
+              logger.info('Claimable address:', address);
+              logger.info('Satisfying tokens:', satisfyingTokens);
+              // Process or log claimableAddress and satisfyingTokens as needed
+              // Additionally, you can mark and save the claimable address here
+              await this.markAndSave({ addressMetadata, traitConditionMet: true });
+            }
           }
         }
-      }
-              // Check for minimum token quantity
-      if (condition.minTokenQuantity !== undefined) {
-        const tokenQuantity = addressMetadata.tokenIds.length;
-        if (tokenQuantity >= condition.minTokenQuantity) {
-          logger.info(`address: ${addressMetadata.ownerAddress} satisfies requirements of holding enough of ${condition.minTokenQuantity} - ${tokenQuantity}`);
-        } else {
-          return false;
-        }
-      }
-      logger.info('No conditions met for address:', address, tokenIds);
+      } catch (error) {
+        // Handle errors appropriately
+        logger.error('Error in processing claimable addresses:', error);
+        return false;
       }
     }
-
-    } catch (error) {
-      logger.error('Error in checkCondition:', error);
-      return false;
-    }
-  
-    return false;
+    return true;
   }
   
-  
+ 
   
 private normalizeTraits(traits: TraitType[] | Record<string, TraitType>, defaultTrait: TraitType): Promise<TraitType[]> {
   if (!traits) {
@@ -445,7 +440,7 @@ async getUniqueFrames(attributes: Attribute[]): Promise<string[]> {
         return;
       }
   
-      // Check for required token IDs
+      // Check for required token tokenIds
       let _tokenId: number;
       if (requiredTokenIds && requiredTokenIds.length > 0) {
         const hasRequiredTokenIds = requiredTokenIds.some((tokenId) =>
