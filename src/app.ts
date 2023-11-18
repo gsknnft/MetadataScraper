@@ -50,15 +50,15 @@ dotenv.config();
   const traitChecker = new TraitChecker();
   traitChecker.runChecker();
   //await meta.createAddressTokenMetadata();
-  shouldContinue;
-   try {
+ // shouldContinue;
+/*    try {
     // Now you can log or handle the result as needed
-    const claimableAddresses = await traitChecker.readExistingClaimableAddresses();
+    const claimableAddresses = await traitChecker.readExistingClaimableAddresses2();
     logger.info('Claimable Addresses:', claimableAddresses);
   } catch (error) {
     logger.error(`ERROR: ${error}`)
 
-  }
+  } */
 
   //await meta.process();
 

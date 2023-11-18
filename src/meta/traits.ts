@@ -1,5 +1,12 @@
 // traits.ts
 
+
+export interface Traits {
+  frame: FrameTrait;
+  song: SongTrait
+}
+
+
 export interface Songs {
   songs: string[];
 }
@@ -16,7 +23,7 @@ export interface Frames {
   color: string[];
 }
 
-export const songsData: Songs = {
+export const songsDataSet: Songs = {
   songs: [
     `Midwest Boy`,
     'Im Gonna Love You',
@@ -26,7 +33,7 @@ export const songsData: Songs = {
   ],
 };
 
-export const framesData: Frames = {
+export const framesDataSet: Frames = {
   color: ['Red', `Green`, `Purple`, `Blue`, `Silver`, `Gold`],
 };
 
@@ -50,3 +57,19 @@ export enum FrameTrait {
   Silver = 'Silver',
   Gold = 'Gold',
 }
+
+export const framesData: Frames = {
+  color: Object.values(FrameTrait),
+};
+
+
+export const songsData: Songs = {
+  songs: Object.values(SongTrait),
+};
+
+
+export const frameEqualizer: Record<string, string> = {
+  "Daddress's Colors": "Frame",
+  "Colors": "Frame",
+  "Frame": "Frame",
+};
