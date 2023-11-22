@@ -53,3 +53,4 @@ Flipped metadata is also stored on IPFS. It is recommended to use a gateway from
 - [ ] Support retrieving metadata and images from Arweave (comply with `ar://` standard)
 - [ ] Support storing flipped metadata and images on Arweave (bulk upload w/ private key)
 - [ ] Parallelize retrieval (fast enough to scrape ~10K collection in <5m with local IPFS node + erigon, but can be faster with hosted nodes)
+# MetaScraper
