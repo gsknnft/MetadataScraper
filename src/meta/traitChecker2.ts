@@ -71,22 +71,6 @@ export class TraitChecker {
     this.songsData = songsDataSet;
     this.framesData = framesDataSet;
     this.contractAddress = process.env.CONTRACT || '0xFAb8E011F858270A3d41E4af3c2FDec0081B0eE3';
-    this.conditions = [
-      {
-        if: [TraitType.Song],
-        mustHave: [TraitType.Frame],
-        requiresOneSongAllColors: true,
-        claimIndex: ClaimIndex.OneSongAllColors,
-        quantity: 1,
-      },
-      {
-        if: [TraitType.Frame],
-        mustHave: [TraitType.Song],
-        allSongsOneColor: true,
-        claimIndex: ClaimIndex.AllSongsOneColor,
-        quantity: 1,
-      }
-    ]
   }
 
   private async writeClaimsRecord(filePath: string, data: ClaimsRecord[]): Promise<void> {
@@ -149,16 +133,18 @@ export class TraitChecker {
     return traitsData;
   }
 
-  async checkCondition(condition: Condition): Promise<boolean> {
-    const allAddressesData = await this.readData.readCollectedData();
+  async checkCondition(
+    addressMetadata: AddressMetadata,
+    tokenMetadata: TokenMetadata,
+    condition: Condition
+  ): Promise<boolean> {
+    const tokenData = await this.readData.readCollectedData();
   
     const normalizedTraitToCheck = await this.normalizeTraits(condition.if, TraitType.Song);
     const normalizedMustHave = await this.normalizeTraits(condition.mustHave, TraitType.Frame);
   
     logger.info(`normalizedTraitToCheck: ${JSON.stringify(normalizedTraitToCheck, null, 2)}`);
     logger.info(`normalizedMustHave: ${JSON.stringify(normalizedMustHave, null, 2)}`);
-    const claimableAddresses: ClaimableAddress[] = [];
-    const satisfyingTokens: number[] = [];
     const claimAddresses: ClaimAddress[] = [{
       address: '',
       satisfyingTokens: [],
@@ -166,228 +152,278 @@ export class TraitChecker {
         songsArray: [],
         attributes: []
       },
-    }];
-  
-    for (const contractAddress in allAddressesData) {
-      const ownerAddressesData = allAddressesData[contractAddress];
-      const numOwners = Object.entries(allAddressesData[contractAddress]).length;
-      logger.info(`
-        Checking ${contractAddress} for ${numOwners} owners
-        Contract: ${contractAddress.toLowerCase()}.
-      `);
-  
-      try {
-        for (const ownerAddress of Object.keys(ownerAddressesData)) {
-          logger.info(`Processing owner: ${ownerAddress}`);
-          const addressData = ownerAddressesData[ownerAddress];
-          const tokenIds = addressData.tokenIds;
-          const metadata = addressData.metadata;
-          const numTokens = tokenIds.length;
-          const extractedMetadata: AddressMetadata = {
-            ownerAddress: ownerAddress,
-            tokenIds: tokenIds,
-            metadata: metadata,
-          };
-          logger.info(`DataCheck: owner: ${ownerAddress} owns -> #${numTokens} Tokens ${tokenIds}`);
+    }]
 
-          const uniqueSongsSet: Set<string> = new Set();
-          const uniqueFramesSet: Set<string> = new Set();
-          const songsArray: string[] = [];
-          const framesArray: string[] = [];
-          const relevantAttributes: Attribute[] = []
-          const attributes: Attribute[] = []
-          const metaArray = []
-          const tokenAttributesMap = await this.readData.readTokenMetadataList(contractAddress, ownerAddress, tokenIds);
-                    // Use the tokenAttributesMap in your logic
-          
-          for (const tokenId of tokenIds) {
-              const meta = metadata[tokenId].metadata;
-              const _attributes: Attribute[] = meta.attributes;
-              const relAtt: Attribute[] = attributes.filter(attribute => attribute.trait_type === TraitType.Song || frameEqualizer[attribute.trait_type] === TraitType.Frame);
-              metaArray.push({tokenId: tokenId, metaD: { meta }});
-              relevantAttributes.push(...relAtt);
-              attributes.push(..._attributes);
-          }
-          logger.info(`Relevent Attributes Check ${JSON.stringify(relevantAttributes, null, 2)}`)
 
-          const uniqueSongs = await this.getUniqueSongsArray(attributes);
-          logger.info(`uniqueSongs: ${JSON.stringify([...uniqueSongs], null, 2)}`);
-          const uniqueFrames = await this.getUniqueFramesArray(attributes);
-          logger.info(`uniqueFrames: ${JSON.stringify([...uniqueFrames], null, 2)}`);
+    const claimableAddresses: ClaimableAddress[] = [];
+      const satisfyingTokens: number[] = [];
+        for (const [contractAddress, ownerAddressesData] of Object.entries(tokenData)) {
+          const numOwners = tokenData[contractAddress].length;
+          const numOwners2 = Object.keys(tokenData[contractAddress]).length;
+          logger.info(`
+              Checking ${contractAddress} for ${numOwners}, == ${numOwners2} owners
+              Contract: ${contractAddress.toLowerCase()}.
+            `);
+          for (let i = 0; i < Object.entries(tokenData).length; i++) {
+            try {
 
-              for (const attribute of attributes) {
+            for (const [ownerAddress, addressData] of Object.entries(ownerAddressesData)) {
+                const ownerAddressValue = addressData.ownerAddress;
+                const numowners = Object.entries(ownerAddressesData).length;
+                const tokenIds = addressData.tokenIds;
+                const numTokens = tokenIds.length;
+                const metadata = addressData.metadata;               
+                if (tokenIds && Array.isArray(tokenIds) && numTokens > 0) {
+                  const extractedMetadata: AddressMetadata = {
+                    ownerAddress: ownerAddressValue,
+                    tokenIds: tokenIds,
+                    metadata: metadata,
+                  };
 
-                const trait_type = attribute.trait_type;
-                const value = attribute.value;
-          
-                if (trait_type === TraitType.Song) {
-                  songsArray.push(value);
-                  uniqueSongsSet.add(value);
-                }
-          
-                if (frameEqualizer[trait_type] === TraitType.Frame) {
-                  framesArray.push(value);
-                  uniqueFramesSet.add(value);
-                }
-              }
+                  logger.info(`DataCheck: owner: ${ownerAddress} should be ${ownerAddressValue} owns -> #${numTokens} Tokens ${tokenIds}`)
+                  for (let i = 0; i < numTokens; i++) {
+                    const tokenId = tokenIds[i];
+                    if (!isNaN(tokenId)) {
+                      const tokenMetadataIndex = addressData.metadata[tokenId];
+                      logger.info(`DataCheck: Index: ${tokenMetadataIndex} TokenID: ${tokenId} - Count -> #${(numTokens - i)} -  Tokens ${i}/${numTokens}`)
+                      if (tokenMetadataIndex) {
+                        const tokenMetadata = tokenMetadataIndex.metadata;
+                        if (metadata) {
+                          const attributes: Attribute[] = tokenMetadata.attributes;  
+                          const uniqueFrames = await this.getUniqueFramesArray(attributes);
+                          const uniqueSongs = await this.getUniqueSongsArray(attributes);                        
+                          const extractedTokenMetadata: TokenMetadata = {
+                            name: tokenMetadata.name,
+                            description: tokenMetadata.description,
+                            image: tokenMetadata.image,
+                            attributes: attributes,
+                          };
+                          const songsArray: string[] = [];
+                          const framesArray: string[] = [];
+                          const uniqueSongsSet: Set<string> = new Set();
+                          const uniqueFramesSet: Set<string> = new Set();
+                          for (const attribute of attributes) {
+                            const trait_type = attribute.trait_type;
+                            const value = attribute.value;
+                            
+                            if (trait_type === TraitType.Song) {
+                              songsArray.push(value);
+                              uniqueSongsSet.add(attribute.value);
+                            }
             
-            
-              logger.info(`Comparing uniqueFramesSet: ${JSON.stringify(uniqueFrames)} and framesArray ${framesArray}`)
+                            if (trait_type === TraitType.Frame) {
+                              framesArray.push(value);
+                              uniqueFramesSet.add(attribute.value);
+                            }
+                            logger.info(`Checking attributes: ${attribute.trait_type}: ${attribute.value}...`);
+                          }
 
-            // Check requiresOneSongAllColors condition
-            if (condition.requiresOneSongAllColors) {
-              logger.info('Checking requiresOneSongAllColors condition...');
-              // Iterate over each unique song
-              for (const song of uniqueSongsSet) {
-                // Find the corresponding song attribute
-                const songAttribute = attributes.find(sAttribute => sAttribute.trait_type === TraitType.Song && sAttribute.value === song);
 
-                if (songAttribute) {
-                  const songValue = songAttribute.value;
-    
-                  const hasAllColors = attributes
-                    .filter(attribute => frameEqualizer[attribute.trait_type] === TraitType.Frame)
-                    .every(attribute => {
-                      const correspondingSong = attributes.find(
-                        attr => attr.trait_type === TraitType.Song && attr.value === songValue
-                      );
-    
-                      if (correspondingSong) {
-                        songsArray.push(correspondingSong.value);
+                          logger.info(`uniqueSongs: ${JSON.stringify([...uniqueSongs], null, 2)}`);
+                          logger.info(`uniqueFrames: ${JSON.stringify([...uniqueFrames], null, 2)}`);
+                              // Check requiresOneSongAllColors condition
+                              if (condition.requiresOneSongAllColors) {
+                                logger.info('Checking requiresOneSongAllColors condition...');
+                                // Iterate over each unique song
+                                for (const song of uniqueSongs) {
+                                  // Find the corresponding song attribute
+                                  const songAttribute = attributes.find(sAttribute => sAttribute.trait_type === TraitType.Song && sAttribute.value === song);
+
+                                  if (songAttribute) {
+                                    const songValue = songAttribute.value;
+                                    logger.info(`Checking SongValue: ${songValue}`);
+                                    songsArray.push(songValue.trim());
+                                    
+                                    const framesForSong = attributes
+                                    .filter(fAttribute => frameEqualizer[fAttribute.trait_type] === TraitType.Frame && fAttribute.value === songValue)
+                                    .map(fAttribute => fAttribute.value);
+
+                                    // Check if frames cover all colors
+                                    const hasAllColors = attributes
+                                    .filter(songAttribute => frameEqualizer[songAttribute.trait_type] === TraitType.Song && songAttribute.value === songValue)
+                                    .every(songAttribute => {
+                                      // Find all frames corresponding to the current song
+                                      const framesForSong = attributes
+                                        .filter(fAttribute => frameEqualizer[fAttribute.trait_type] === TraitType.Frame && fAttribute.value === songAttribute.value)
+                                        .map(fAttribute => fAttribute.value);
+                                  
+                                      // Check if frames cover all colors
+                                      return framesDataSet.color.every(color => framesForSong.includes(color));
+                                    });
+                                  
+
+
+                                        logger.info(`Songs Array${JSON.stringify(songsArray, null, 2)}`);
+                                        logger.info(`${JSON.stringify([...framesArray], null, 2)}`);
+
+                                    const isValid = await this.checkRequiresOneSongAllColors(attributes);
+                                    if (!hasAllColors) {
+                                      logger.info(`Check 1Failed ${hasAllColors}`)
+                                    const hasAllColors2 = framesDataSet.color.every(color => framesForSong.includes(color));
+                                    if (hasAllColors2) {
+                                      logger.info(`Check 2Passed ${hasAllColors2}`)
+                                      }
+                                    }
+                                    logger.info(`Song ${song} - HasAllColors: ${hasAllColors}`);
+                                    logger.info(`Owner ${ownerAddress} HasAllColors: ${hasAllColors} of Song ${song}`);
+                            
+                                    if (isValid && hasAllColors) {
+                                        satisfyingTokens.push(tokenId);
+                                        if (satisfyingTokens.length > 0) {
+                                            claimAddresses.push({
+                                                address: ownerAddress,
+                                                satisfyingTokens: satisfyingTokens,
+                                                meta: {
+                                                    attributes,
+                                                    songsArray,
+                                                },
+                                            });
+                                            claimableAddresses.push({
+                                                address: ownerAddress,
+                                                claimable: true,
+                                                song: song,
+                                                claimIndex: ClaimIndex.OneSongAllColors,
+                                                quantity: 1
+                                            });
+                                        }
+                                        try {
+                                          await this.markAndSave({
+                                            ownerAddress,
+                                            satisfyingTokens,
+                                            traitConditionMet: true,
+                                            song: song,
+                                            claimIndex: ClaimIndex.OneSongAllColors,
+                                            quantity: 1
+                                        });
+                                        } catch (error) {
+                                          await this.saveClaimableAddress({
+                                            address: ownerAddress,
+                                            claimable: true,
+                                            claimIndex: ClaimIndex.OneSongAllColors,
+                                            quantity: 1
+                                        });
+                                          logger.info('Claimable address:', ownerAddressValue); // Log the claimable address
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                                if (condition.allSongsOneColor && normalizedTraitToCheck.includes(TraitType.Frame) && normalizedMustHave.includes(TraitType.Song)) {
+                                  logger.info(`Checking allSongsOneColor...`);
+                                
+                                  // Iterate over each unique frame color
+                                  for (const frameColor of uniqueFrames) {
+                                    const hasAllSongsInOneColor = attributes
+                                      .filter(frameAttribute => frameEqualizer[frameAttribute.trait_type] === TraitType.Frame && frameAttribute.value === frameColor)
+                                      .every(frameAttribute => {
+                                        // Find all songs corresponding to the current frame color
+                                        const songsForFrame = attributes
+                                          .filter(songAttribute => frameEqualizer[songAttribute.trait_type] === TraitType.Song && songAttribute.value === frameAttribute.value)
+                                          .map(songAttribute => songAttribute.value);
+                                  
+                                        // Check if songs cover all songs
+                                        return songsDataSet.songs.every(song => songsForFrame.includes(song));
+                                      });
+                                  
+                                    logger.info(`Frame Color ${frameColor} - hasAllSongsInOneColor: ${hasAllSongsInOneColor}`);
+                                    logger.info(`Owner ${ownerAddressValue} hasAllSongsInOneColor: ${hasAllSongsInOneColor} of Frame Color ${frameColor}`);
+                                  
+                                    if (hasAllSongsInOneColor) {
+                                      await this.markAndSave({
+                                        ownerAddress,
+                                        frame: frameColor,
+                                        traitConditionMet: true,
+                                        claimIndex: ClaimIndex.AllSongsOneColor,
+                                        quantity: 1
+                                      });
+                                      logger.info('Claimable address:', ownerAddressValue); // Log the claimable address
+                                  
+                                    logger.info(`Frame Color ${frameColor} - hasSongInOneColor: ${hasAllSongsInOneColor}`);
+                                    logger.info(`Owner ${ownerAddressValue} hasSongInOneColor: ${hasAllSongsInOneColor} of Frame Color ${frameColor}`);
+                                    // Mark and save the condition fulfillment
+                                      await this.markAndSave({ ownerAddress, frame: frameColor, traitConditionMet: true, claimIndex: ClaimIndex.AllSongsOneColor, quantity: 1 });
+                                      logger.info('Claimable address:', ownerAddressValue); // Log the claimable address
+                                  }
+                                }
+                              }                             
+                              extractedMetadata.metadata[tokenId] = {
+                                metadata: extractedTokenMetadata,
+                              };
+                              extractedMetadata.tokenIds.push(tokenId);
+                            
+                          }
+                        }
                       }
-    
-                      const framesForSong = attributes
-                        .filter(fAttribute => frameEqualizer[fAttribute.trait_type] === TraitType.Frame && fAttribute.value === songValue)
-                        .map(fAttribute => fAttribute.value);
-    
-                      return framesDataSet.color.every(color => framesForSong.includes(color));
-                    });
-  
-                  //logger.info(`Songs Array${JSON.stringify(songsArray, null, 2)}`);
-                  //logger.info(`${JSON.stringify([...framesArray], null, 2)}`);
-  
-                  logger.info(`Owner ${ownerAddress} HasAllColors: ${hasAllColors} of Song ${songValue}`);
-                  if (hasAllColors) {
-                    //satisfyingTokens.push(tokenIds);
-                    claimAddresses.push({
-                      address: ownerAddress,
-                      satisfyingTokens: satisfyingTokens.slice(),
-                      meta: {
-                        attributes,
-                        songsArray,
-                      },
-                    });
-    
-                    claimableAddresses.push({
-                      address: ownerAddress,
-                      claimable: true,
-                      song: songValue,
-                      claimIndex: ClaimIndex.OneSongAllColors,
-                      quantity: 1
-                    });
-    
-                    await this.markAndSave({
-                      ownerAddress,
-                      satisfyingTokens: satisfyingTokens.slice(),
-                      traitConditionMet: true,
-                      song: songValue,
-                      claimIndex: ClaimIndex.OneSongAllColors,
-                      quantity: 1
-                    });
-    
-                    logger.info('Claimable address:', ownerAddress);
+                    // Check for required token tokenIds
+                    if (condition.requiredTokenIds && condition.requiredTokenIds.length > 0) {
+                      const hasRequiredTokenIds = condition.requiredTokenIds.some((tokenId) =>
+                        extractedMetadata.tokenIds.includes(tokenId)
+                      );
+
+                      if (hasRequiredTokenIds) {
+                        satisfyingTokens.push(tokenId);
+                        logger.info(`address: ${ownerAddress} satisfies requirements of holding one of ${condition.requiredTokenIds}`);
+                        await this.markAndSave({
+                          ownerAddress,
+                          satisfyingTokens,
+                          traitConditionMet: true,
+                          claimIndex: 3,
+                          quantity: 1
+                      });
+                      } else {
+                        return false;
+                      }
+                    }
+                  
+                    // Check for minimum token quantity
+                    if (condition.minTokenQuantity !== undefined) {
+                      const tokenQuantity = extractedMetadata.tokenIds.length;
+                      if (tokenQuantity >= condition.minTokenQuantity) {
+                        logger.info(`address: ${ownerAddress} satisfies requirements of holding enough of ${condition.minTokenQuantity} - ${tokenQuantity}`);
+                      } else {
+                        return false;
+                      }
+                    }
                   }
                 }
               }
-            }
-  
-            if (condition.allSongsOneColor || normalizedTraitToCheck.includes(TraitType.Frame) || normalizedMustHave.includes(TraitType.Song)) {
-              logger.info(`Checking allSongsOneColor...`);
-  
-              // Iterate over each unique frame color
-              for (const frameColor of uniqueFramesSet) {
-                const hasAllSongsInOneColor = attributes
-                .filter(frameAttribute => frameEqualizer[frameAttribute.trait_type] === TraitType.Frame && frameAttribute.value === frameColor)
-                .every(frameAttribute => {
-                  const songsForFrame = relevantAttributes
-                    .filter(songAttribute => songAttribute.trait_type === TraitType.Song && songAttribute.value === frameColor)
-                    .map(songAttribute => songAttribute.value);
-          
-                  return songsDataSet.songs.every(song => songsForFrame.includes(song));
-                });
-  
-                logger.info(`Frame Color ${frameColor} - hasAllSongsInOneColor: ${hasAllSongsInOneColor}`);
-                logger.info(`Owner ${ownerAddress} hasAllSongsInOneColor: ${hasAllSongsInOneColor} of Frame Color ${frameColor}`);
-  
-                if (hasAllSongsInOneColor) {
-                  await this.markAndSave({
-                    ownerAddress,
-                    frame: frameColor,
-                    traitConditionMet: true,
-                    claimIndex: ClaimIndex.AllSongsOneColor,
-                    quantity: 1
-                  });
-                  logger.info('Claimable address:', ownerAddress); // Log the claimable address
-  
-                  logger.info(`Owner ${ownerAddress} hasSongInOneColor: ${hasAllSongsInOneColor} of Frame Color ${frameColor}`);
-                  // Mark and save the condition fulfillment
-                  logger.info('Claimable address:', ownerAddress); // Log the claimable address
+              for (const claimableAddress of claimableAddresses) {
+                // Access the claimable address and its satisfying tokens as needed
+                const { address, claimIndex, claimable, quantity } = claimableAddress;
+                logger.info('Claimable address:', address);
+                logger.info('Satisfying tokens:', satisfyingTokens);
+                // Process or log claimableAddress and satisfyingTokens as needed
+                // Additionally, you can mark and save the claimable address here
+                await this.saveAgglomeratedClaimableAddresses(claimableAddresses);
+                //await this.markAndSave({ ownerAddress: claimableAddress.address, traitConditionMet: true, claimIndex: 1, quantity: 1 });
                 }
-              }
-            }
-          
-            // Check for required token tokenIds
-            if (condition.requiredTokenIds && condition.requiredTokenIds.length > 0) {
-              const hasRequiredTokenIds = condition.requiredTokenIds.some((tokenId) =>
-                extractedMetadata.tokenIds.includes(tokenId)
-              );
-  
-              if (hasRequiredTokenIds) {
-                logger.info(`address: ${ownerAddress} satisfies requirements of holding one of ${condition.requiredTokenIds}`);
-                await this.markAndSave({
-                  ownerAddress,
-                  satisfyingTokens,
-                  traitConditionMet: true,
-                  claimIndex: 3,
-                  quantity: 1
-                });
-              } else {
-                return false;
-              }
-            }
-  
-            // Check for minimum token quantity
-            if (condition.minTokenQuantity !== undefined) {
-              const tokenQuantity = extractedMetadata.tokenIds.length;
-              if (tokenQuantity >= condition.minTokenQuantity) {
-                logger.info(`address: ${ownerAddress} satisfies requirements of holding enough of ${condition.minTokenQuantity} - ${tokenQuantity}`);
-              } else {
-                return false;
-              }
+            } catch (error) {
+              // Handle errors appropriately
+              logger.error('Error in processing claimable addresses:', error);
+              return false;
+             }
             }
           }
-        
-      } catch (error) {
-        // Handle errors appropriately
-        logger.error('Error in processing claimable addresses:', error);
-        return false;
-      }
+       return true;
+     }
   
-      for (const claimableAddress of claimableAddresses) {
-        // Access the claimable address and its satisfying tokens as needed
-        const { address, claimIndex, claimable, quantity } = claimableAddress;
-        logger.info('Claimable address:', address);
-        logger.info('Satisfying tokens:', satisfyingTokens);
-        // Process or log claimableAddress and satisfyingTokens as needed
-        // Additionally, you can mark and save the claimable address here
-        await this.saveAgglomeratedClaimableAddresses(claimableAddresses);
-        //await this.markAndSave({ ownerAddress: claimableAddress.address, traitConditionMet: true, claimIndex: 1, quantity: 1 });
-      }
+
+  async checkRequiresOneSongAllColors(attributes: Attribute[]): Promise<boolean> { 
+    const uniqueSongs = await this.getUniqueSongs(attributes);
+  for (const song of uniqueSongs) {
+    const hasAllColors = attributes
+      .filter((attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame)
+      .every((attribute) => {
+        const correspondingSong = attributes.find(
+          (attr) => attr.trait_type === TraitType.Song && attr.value === song
+        );
+        return correspondingSong !== undefined;
+      });
+      return hasAllColors;
     }
-    return true;
+    return false;
   }
   
- 
 private normalizeTraits(traits: TraitType[] | Record<string, TraitType>, defaultTrait: TraitType): Promise<TraitType[]> {
   if (!traits) {
     // If traits is undefined, return an empty array as a promise
@@ -410,6 +446,7 @@ private isTraitTypeArray(value: TraitType[] | Record<TraitType, string>): value 
 }
   
 async getUniqueSongs(attributes: Attribute[]): Promise<string[]> {
+  const uniqueSongs: Set<string> = new Set();
   const songTraitType = TraitType.Song;
   const songValues = attributes
     .filter((attribute) => attribute.trait_type === songTraitType)
@@ -540,21 +577,27 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
   }
   
   async checkNestedCondition(
+    addressData: AddressMetadata,
+    tokenMetadata: TokenMetadata,
+    attribute: Attribute,
     nestedCondition: Condition
   ): Promise<boolean> {
     try {
-    return await this.checkCondition(nestedCondition);
+    return await this.checkCondition(addressData, tokenMetadata, nestedCondition);
     } catch (error) {
       throw new Error(`${error}`);
     }
   }
 
   async checkConditions(
+    tokenMetadata: TokenMetadata,
+    addressData: AddressMetadata,
+    attribute: Attribute,
     conditions: Condition[]
   ): Promise<boolean> {
         try {
     const _conditions = conditions.every((condition) =>
-      this.checkNestedCondition(condition)
+      this.checkNestedCondition(addressData, tokenMetadata, attribute, condition)
     );
     return _conditions;
   } catch (error) {
@@ -563,13 +606,15 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
   }
 
   async processTokenConditions(
+    tokenMetadata: TokenMetadata,
     addressData: AddressMetadata,
+    attribute: Attribute,
     conditions: Condition[]
   ): Promise<ClaimableAddress[]> {
     try {
     const processedAddresses = await Promise.all(
       conditions.map(async (condition) => {
-        const isClaimable = await this.checkNestedCondition(condition);
+        const isClaimable = await this.checkNestedCondition(addressData, tokenMetadata, attribute, condition);
         if (isClaimable) {
           return {
             address: addressData.ownerAddress,
@@ -588,13 +633,16 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
 }
   
   async processConditions(
+    allAddressesData: AllAddressesMetadata,
     addressData: AddressMetadata,
+    tokenMetadata: TokenMetadata,
+    attribute: Attribute,
     conditions: Condition[]
   ): Promise<ClaimableAddress[]> {
     try {
     const processedAddresses = await Promise.all(
       conditions.map(async (condition) => {
-        const isClaimable = await this.checkNestedCondition(condition);
+        const isClaimable = await this.checkNestedCondition(addressData, tokenMetadata, attribute, condition);
         if (isClaimable) {
           return {
             address: addressData.ownerAddress,
@@ -618,12 +666,14 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
   ): Promise<ClaimableAddress[]> {
     logger.info(`Starting check`);
     try {
+      const addressMetadata: AddressMetadata = await this.readData.readCollectedAddressData();
       const existingClaimableAddresses: ClaimableAddress[] = await this.readExistingClaimableAddresses2();
       const claimableAddresses: ClaimableAddress[] = [];
       const processTasks: Promise<ClaimableAddress[]>[] = [];
+      const tokenMetadata: TokenMetadata = await this.readData.readCollectedTokenData();
 
                 for (const condition of conditions) {
-                  const checkAddresses = await this.checkCondition(condition);
+                  const checkAddresses = await this.checkCondition(addressMetadata, tokenMetadata, condition);
                   if (checkAddresses) {
                     logger.info(`AddressCheck completed ${checkAddresses}`)
                 }
@@ -633,7 +683,7 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
       const newClaimableAddresses = processResults.flat();
       claimableAddresses.push(...newClaimableAddresses);
     
-      const hasChanges = !await deepEqual(
+      const hasChanges = !await this.areArraysEqual(
         existingClaimableAddresses,
         claimableAddresses
       );
@@ -666,7 +716,9 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
     const tokenIds: number[] = addressData.tokenIds;
     for (const tokenId of tokenIds) {
       const processedAddresses = await this.processTokenConditions(
+        tokenMetadata,
         addressData,
+        attribute,
         conditions
       );
   
@@ -786,7 +838,7 @@ async saveClaimableAddress(claimableAddress: ClaimableAddress): Promise<void> {
       try {
       const checkedAddresses = await this.checkTraitsAndMarkClaimable(conditionsToCheck);
       logger.info(`Checker completed. Checked Addresses: ${checkedAddresses}`);
-     // await this.saveToFile(`./${this.contractAddress.toLowerCase()}_claimableAddresses.json`, checkedAddresses);
+      await this.saveToFile(`./${this.contractAddress.toLowerCase()}_claimableAddresses.json`, checkedAddresses);
       logger.info(`Checker completed. Saved Checked Addresses to File: ${checkedAddresses}`);
       return checkedAddresses;
     } catch (error) {

@@ -6,6 +6,10 @@ export interface Traits {
   song: SongTrait
 }
 
+export interface TraitsData {
+  [TraitType.Song]: string[];
+  [TraitType.Frame]: string[];
+}
 
 export interface Songs {
   songs: string[];
@@ -34,7 +38,14 @@ export const songsDataSet: Songs = {
 };
 
 export const framesDataSet: Frames = {
-  color: ['Red', `Green`, `Purple`, `Blue`, `Silver`, `Gold`],
+  color: [
+    'Red',
+    `Green`,
+    `Purple`,
+    `Blue`,
+    `Silver`,
+    `Gold`
+  ],
 };
 
 export enum TraitType {
@@ -69,7 +80,7 @@ export const songsData: Songs = {
 
 
 export const frameEqualizer: Record<string, string> = {
-  "Daddress's Colors": "Frame",
+  "Daddy's Colors": "Frame",
   "Colors": "Frame",
   "Frame": "Frame",
 };

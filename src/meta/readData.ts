@@ -12,7 +12,7 @@ import _default from 'vuex';
 import { isDeepStrictEqual } from 'util';
 import Meta, {AddressTokenIdsMap} from '../meta';
 import { add } from 'winston';
-import { TraitType } from './traits';
+import { TraitType, frameEqualizer } from './traits';
 
 export interface Attribute {
   trait_type: TraitType;
@@ -144,6 +144,45 @@ async readSanitizedAddressesFromJSON(): Promise<Address[]> {
       return {};
     }
   }
+
+  
+
+  async readTokenMetadataList(contractAddress: string, ownerAddress: string, tokenIds: number[]): Promise<{ [tokenId: number]: { song: string; frame: string } }> {
+    const tokenAttributesMap: { [tokenId: number]: { song: string; frame: string } } = {};
+  
+    try {
+      const contractData = await this.readCollectedData();
+      const ownerData = contractData[contractAddress]?.[ownerAddress];
+  
+      if (ownerData) {
+        for (const tokenId of tokenIds) {
+          const tokenMetadataIndex = ownerData.metadata[tokenId];
+  
+          if (tokenMetadataIndex) {
+            const tokenMetadata = tokenMetadataIndex.metadata;
+  
+            if (tokenMetadata) {
+              const songAttribute = tokenMetadata.attributes.find((attribute) => attribute.trait_type === TraitType.Song);
+              const frameAttribute = tokenMetadata.attributes.find((attribute) => frameEqualizer[attribute.trait_type] === TraitType.Frame);
+  
+              if (songAttribute && frameAttribute) {
+                tokenAttributesMap[tokenId] = {
+                  song: songAttribute.value,
+                  frame: frameAttribute.value,
+                };
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Handle errors appropriately
+      console.error('Error reading token metadata:', error);
+    }
+  
+    return tokenAttributesMap;
+  }
+  
 
   async readAndExtractData(): Promise<AllAddressesMetadata> {
     let allAddressesData: AllAddressesMetadata = {};

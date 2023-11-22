@@ -1,0 +1,23 @@
+[
+  {
+    "address": "0x497Dc1c32BC203B9510B9252046b7332Df7Ed0a3",
+    "claimable": true,
+    "song": "Midwest Boy",
+    "claimIndex": 1,
+    "quantity": 1
+  },
+  {
+    "address": "0x971184B8DA6E8a87A51d56D29f41b7B26f2F47ca",
+    "claimable": true,
+    "song": "Daddy's Head Hurts",
+    "claimIndex": 1,
+    "quantity": 1
+  },
+  {
+    "address": "0x971184B8DA6E8a87A51d56D29f41b7B26f2F47ca",
+    "claimable": true,
+    "song": "Midwest Boy",
+    "claimIndex": 1,
+    "quantity": 1
+  }
+]
